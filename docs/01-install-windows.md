@@ -257,8 +257,8 @@ docker rmi ghcr.io/empiflow/empiflow-kit-erpnext:v1.0.0
 ```
 
 Then delete the `C:\EmpiFlow` folder. If you installed the engine with this kit and want it gone as well,
-uninstall *Ubuntu 24.04* from Windows Settings → Apps, delete `C:\ProgramData\EmpiFlow\wsl`, and turn off the
-two Windows features in *Turn Windows features on or off*.
+uninstall *Ubuntu 24.04* from Windows Settings → Apps, delete the folder named in `WSL_ROOT` (default
+`C:\ProgramData\EmpiFlow\wsl`), and turn off the two Windows features in *Turn Windows features on or off*.
 
 ---
 

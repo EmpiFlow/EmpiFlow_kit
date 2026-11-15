@@ -129,6 +129,7 @@ function ConvertTo-WslArgumentString {
     param([string[]]$Arguments)
     $parts = @()
     foreach ($a in $Arguments) {
+        $a = ($a -replace "`r", "")   # bash payloads must never carry CRLF
         if ($a -match '[\s"]') { $parts += ('"' + ($a -replace '"', '\"') + '"') }
         else { $parts += $a }
     }

@@ -179,6 +179,7 @@ fi
 echo "docker: $(docker --version)"
 '@
 
+$bootstrap = $bootstrap -replace "`r", ''
 Write-Step 'installing Docker (first run only, a few minutes)'
 $bootstrapProbe = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'bash', '-c', $bootstrap) -TimeoutSeconds 1500
 $out = @($bootstrapProbe.Output) + @($bootstrapProbe.Error)

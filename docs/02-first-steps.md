@@ -3,6 +3,10 @@
 *After `Install.cmd` finishes, the browser opens on ERPNext. This document is the first 20 minutes: the setup
 wizard, where HR lives, and connecting Metabase.*
 
+> **Starting and stopping from now on.** Use the **EmpiFlow** folder on your Desktop: **1 Start EmpiFlow**
+> starts WSL, Docker, ERPNext and Metabase; **2 Stop EmpiFlow** stops them and gives the memory back (data is
+> kept). **3 ERPNext** and **4 Metabase** open the two pages. You do not need the installer again.
+
 ---
 
 ## 1. Log in
@@ -81,24 +85,30 @@ Metabase is the reporting tool. It reads the ERPNext database **read-only** thro
 1. Open <http://127.0.0.1:3000>. On first run Metabase asks you to create **its own** admin account — this is
    *not* the ERPNext account. Use your work e-mail and a password you keep.
    - You can decline the "sample database" and the usage-tracking question.
-2. **Add a database** → choose **MySQL** (ERPNext runs MariaDB, which speaks the MySQL protocol):
+2. **Admin settings (the gear, top right) → Databases → Add database → MySQL** (ERPNext runs MariaDB, which
+   speaks the MySQL protocol):
 
    | field | value |
    |---|---|
    | Display name | `ERPNext` |
    | Host | `db` |
    | Port | `3306` |
-   | Database name | your site name with dots replaced by underscores — default **`empiflow_local`** |
+   | **Database name** | **`empiflow_local`** — type it exactly like this, in this field |
    | Username | `metabase_ro` |
    | Password | `MB_RO_PASSWORD` from `.env` (default `metabase_ro`) |
 
+   > **Where exactly do I type `empiflow_local`?** In the **Database name** field of the Add-database form.
+   > It is **not** the Host field (that is `db`) and it is **not** a SQL command. It is the site name
+   > `empiflow.local` with the dots replaced by underscores. All lowercase, one underscore.
+   >
    > **Why not `127.0.0.1`?** Metabase runs in its own container; from there `db` is the database and
    > `127.0.0.1` is Metabase itself. Use the service name.
    >
    > **Why `empiflow_local` and not `empiflow.local`?** Frappe stores the database under a safe name. The
    > kit pins it to the site name with dots replaced by underscores so it is predictable. `create-site.sh`
    > prints it at install time (`database name: empiflow_local`), and it is in
-   > `sites/empiflow.local/site_config.json` → `db_name`.
+   > `sites/empiflow.local/site_config.json` → `db_name`. If you changed `SITE_NAME`, use that name with
+   > dots replaced by underscores.
 
 3. Click **Save**. Metabase syncs the schema in the background: **5–15 minutes** on an 8 GB laptop. You can
    start asking questions before it finishes — table names appear as it discovers them.
@@ -133,7 +143,8 @@ The kit's own data lives in Docker volumes (`empiflow_sites`, `empiflow_db-data`
 
 | when | what |
 |---|---|
-| start of day | `scripts\start.cmd` (or `autostart.cmd` once, and it starts at logon) |
-| end of day | `scripts\stop.cmd` — data is kept |
+| start of day | **1 Start EmpiFlow** in the EmpiFlow folder (or `scripts\start.cmd`; or `autostart.cmd` once, and it starts at logon) |
+| end of day | **2 Stop EmpiFlow** (or `scripts\stop.cmd`) — data is kept |
+| open the pages | **3 ERPNext** · **4 Metabase** |
 | something looks wrong | `scripts\status.cmd`, then `docs\03-troubleshooting.md` |
 | you changed `.env` | `scripts\restart.cmd` |

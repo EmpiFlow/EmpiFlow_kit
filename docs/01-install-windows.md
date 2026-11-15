@@ -1,6 +1,7 @@
 # 01 — Install on Windows
 
-*This is the only document you need to get EmpiFlow running. It takes about 20 minutes, most of which is waiting.*
+*This is the detailed install document. It takes about 20 minutes, most of which is waiting. If you only want
+the short version, read [`00-client-guide.md`](00-client-guide.md).*
 
 ---
 
@@ -9,12 +10,15 @@
 | | |
 |---|---|
 | Windows | Windows 10 (version 2004 or newer) or Windows 11, 64-bit |
-| Memory | 8 GB recommended; 6 GB works if you close other programs during the first start |
-| Disk | 15 GB free (20 GB recommended) |
+| Memory | **8 GB installed** minimum and recommended. Windows shows an 8 GB machine as about 7.7 GB usable; the installer checks the installed capacity. |
+| Disk | 15 GB free (20 GB recommended) on the drive that will hold the WSL disk — `C:` by default |
 | Internet | Needed for the download. After the install the kit works offline. |
 | Time | ~20 minutes: 5 minutes of clicking, 5–15 minutes of the machine creating the site |
 
 You do **not** need: an account anywhere, a server, a GitHub account, or the internet after the install.
+
+> **This is a testing kit.** It is sized for one person at a time. A few people browsing at once may work,
+> but concurrent users have not been tested. Do not use it as a production server.
 
 ---
 
@@ -24,90 +28,90 @@ You do **not** need: an account anywhere, a server, a GitHub account, or the int
    stick — Docker needs a stable local path, and OneDrive locks files while it syncs.
 2. Open the folder `scripts` and double-click **`doctor.cmd`**.
 
-A black window opens and prints one line per check:
+A black window opens and prints one line per check (the window stays open until you press a key):
 
 ```
 EmpiFlow kit - machine check
 
   [ OK ] Windows 11 (build 26200)
   [ OK ] 64-bit Windows
-  [WARN] 7.3 GB of memory — it works, but close other programs during the first start
-  [ OK ] 51.6 GB free
-  [ OK ] docker 29.6.1 inside WSL (Ubuntu-24.04)
+  [ OK ] 8 GB of memory installed (7.7 GB usable)
+  [ OK ] 42.3 GB free on C: (the WSL disk)
+  [WARN] no Docker engine yet - Install.cmd sets one up (WSL 2 + Docker Engine)
+  [ OK ] virtualisation available
+  [ OK ] WSL memory cap set (memory=3GB)
+  [ OK ] port 8080 is free (ERPNext)
   ...
-9 checks: 7 OK, 2 warnings, 0 problems
+12 checks: 9 OK, 3 warning(s), 0 problem(s)
 
 This machine can run the EmpiFlow kit.
+Next: double-click Install.cmd - it sets up WSL and Docker for you.
 ```
 
 - **`[ OK ]`** — nothing to do.
-- **`[WARN]`** — it will work; the note says what to watch.
+- **`[WARN]`** — it will work; the note says what to watch. *No Docker engine yet* is the normal first-run
+  warning; the installer fixes it.
 - **`[FAIL]`** — the line says what is wrong and the `fix:` line says what to do. Nothing has been changed on
-  your machine by this step, so you can stop and come back to it.
+  your machine by this step, so you can stop and come back.
 
-**The one FAIL everybody hits first is `no Docker engine answers`.** Step 2 fixes it.
+`doctor` checks **8 GB of memory installed**. It reads the physical modules, not the ~7.7 GB Windows reports,
+so an 8 GB laptop passes. A 4 GB or 6 GB machine fails here, deliberately: below 8 GB the stack, WSL and Windows
+compete and the laptop can freeze. The installer also caps WSL at 3 GB with 6 GB of swap in
+`%USERPROFILE%\.wslconfig`, which is what keeps an 8 GB laptop usable.
 
 > If the window closes instantly, open **Windows PowerShell** in the kit folder and run `scripts\doctor.cmd`
-> instead — you will then see the output. (Right-click the folder → *Open in Terminal*, or hold Shift and
-> right-click the folder → *Open PowerShell window here*.)
+> instead. (Right-click the folder → *Open in Terminal*, or hold Shift and right-click the folder →
+> *Open PowerShell window here*.) The `.cmd` wrappers pause when double-clicked so you can read the result.
 
 ---
 
-## Step 2 — Give Windows a Docker engine
+## Step 2 — Install EmpiFlow
 
-Docker is what actually runs ERPNext. You have two routes; **B is the one this kit recommends**, because it
-needs no account, no licence and no Docker Desktop.
+Double-click **`Install.cmd`** in the kit folder. That is the whole step.
 
-### Route A — you already have Docker Desktop
+It runs the machine check again, asks five questions (Step 3), and then **does the engine work itself**:
 
-Start **Docker Desktop** from the Start menu and wait until the whale icon stops animating. Then run
-`scripts\doctor.cmd` again: the `DOCKER` row turns `[ OK ]`.
+1. If Docker is already running (Docker Desktop or a previous install), it uses it and changes nothing.
+2. If Docker is installed but stopped, it starts it.
+3. If there is no engine at all, it enables WSL 2 and the Virtual Machine Platform, installs the WSL runtime,
+   imports Ubuntu 24.04 (a 30 MB download) and installs the Docker engine inside it. **Windows asks for
+   administrator permission once** — click **Yes**. If the UAC prompt is refused, no engine or stack is
+   installed (the settings file may already exist).
 
-If Docker Desktop is installed but not running, `doctor` says so by name.
+The long work runs in a **hidden worker** while a **progress window** stays open and prints the log, plus a
+`still working` line every few seconds. You do not need to know which step is running; you only need to see
+that it is alive. Closing the progress window does not stop the install.
 
-### Route B — let the kit install one (recommended)
+### If it says Windows must restart
 
-1. Open **Windows PowerShell as administrator**:
-   Start menu → type `powershell` → right-click **Windows PowerShell** → **Run as administrator** → **Yes**.
-2. Go to the kit folder and start the installer as administrator:
-
-   ```powershell
-   cd C:\EmpiFlow
-   Install.cmd -InstallEngine
-   ```
-
-3. It enables two Windows features (WSL 2 and the Virtual Machine Platform), then says it needs one restart:
-
-   ```
-   Windows has to restart once before WSL can run.
-   After the restart, run Install.cmd again (it continues from here).
-   ```
-
-4. **Restart Windows.** Then run `Install.cmd -InstallEngine` again in an administrator window. It installs
-   Ubuntu 24.04 inside WSL and the Docker engine in it (about 300 MB, a few minutes), and finishes with:
-
-   ```
-   [ OK ] Docker 29.x is running inside WSL (Ubuntu-24.04)
-   [ OK ] docker compose v2.x
-   ```
-
-You only do this once per machine.
+On a machine that has never had WSL, Windows has to restart once after the two features are enabled. The
+installer stops and says so. **Restart Windows, then double-click `Install.cmd` again** — it continues from
+where it stopped, and that is the last restart.
 
 > **Windows 11 24H2 / 25H2 may ask for a second restart.** On those builds WSL itself is a Microsoft Store
 > package, and the built-in `wsl.exe` cannot install it. The installer notices this, runs
-> `winget install Microsoft.WSL`, and asks for one more restart. Run `Install.cmd -InstallEngine` again
-> afterwards — that is the last one.
+> `winget install Microsoft.WSL`, and asks for one more restart. Run `Install.cmd` again afterwards.
 >
-> **Why a restart?** WSL 2 is a small virtual machine; Windows can only start it after the feature is switched on
-> at boot. There is no way around the reboot.
+> **Why a restart?** WSL 2 is a small virtual machine; Windows can only start it after the feature is switched
+> on at boot. There is no way around the reboot.
+
+### If you already have Docker Desktop
+
+Start **Docker Desktop** from the Start menu and wait until the whale icon stops animating. Then run
+`Install.cmd`: the engine row passes and the kit uses Desktop. If Docker Desktop is installed but not running,
+the installer starts it.
+
+> **Docker Desktop licence.** Docker Desktop is **not required** by this kit and is not installed by it. If you
+> choose to use it, Docker's own subscription terms apply — at the time of writing it is free for personal use,
+> education, and businesses with fewer than 250 employees **and** less than $10M annual revenue; larger
+> organisations need a paid Docker subscription. Check <https://www.docker.com/pricing/>. The kit's own
+> WSL 2 + Docker Engine route needs no Docker Desktop account or licence.
 
 ---
 
-## Step 3 — Install EmpiFlow
+## Step 3 — Answer five questions
 
-Double-click **`Install.cmd`** in the kit folder (a normal, non-administrator window is enough from here on).
-
-It asks five questions. Press **Enter** to accept the value in brackets — for a first install, accept all five.
+Press **Enter** to accept the value in brackets — for a first install, accept all five.
 
 ```
   Site name                    [empiflow.local]
@@ -116,8 +120,6 @@ It asks five questions. Press **Enter** to accept the value in brackets — for 
   ERPNext port                 [8080]
   Metabase port                [3000]
 ```
-
-What the answers mean:
 
 | question | what to type | if you are unsure |
 |---|---|---|
@@ -128,11 +130,15 @@ What the answers mean:
 | Metabase port | the number in `http://127.0.0.1:3000` | press Enter |
 
 Then it downloads the image (~1.5 GB, once) and starts the eleven containers. **The first start takes 5–15
-minutes** — the database is created, then the site, then ERPNext and Frappe HR are installed into it. The window
-shows a progress line:
+minutes** — the database is created, then the site, then ERPNext and Frappe HR are installed into it. The
+progress window shows a line every few seconds:
 
 ```
-  waiting for ERPNext ...   180s elapsed,  720s left
+  -> starting the containers
+  [ OK ] image downloaded
+  == Starting the stack
+         waiting for ERPNext ... 180s elapsed
+   ... still working (03:12 elapsed)
 ```
 
 When it is done:
@@ -148,9 +154,23 @@ When it is done:
   Next:      docs\02-first-steps.md
 ```
 
-Your browser opens on ERPNext. **Next: `docs/02-first-steps.md`** — the setup wizard is waiting for you there.
+Your browser opens on ERPNext. The installer also creates the **EmpiFlow** folder on your Desktop and in the
+Start menu.
+
+**[Next: 02 — First steps](02-first-steps.md)** — the setup wizard is waiting for you there.
 
 ---
+
+## The EmpiFlow folder
+
+| item | what it does |
+|---|---|
+| **1 Start EmpiFlow** | starts WSL, Docker, ERPNext and Metabase (about a minute) |
+| **2 Stop EmpiFlow** | stops the containers and the WSL engine; data is kept, memory is returned |
+| **3 ERPNext** | opens <http://127.0.0.1:8080> |
+| **4 Metabase** | opens <http://127.0.0.1:3000> |
+
+Recreate it at any time with `scripts\shortcuts.cmd`; remove it with `scripts\shortcuts.cmd -Remove`.
 
 ## Everyday commands
 
@@ -160,15 +180,36 @@ All of them are double-clickable in `scripts\`.
 |---|---|
 | start the stack | `start.cmd` |
 | stop the stack (data is kept) | `stop.cmd` |
+| stop the containers but leave WSL/Docker running | `stop.cmd -KeepEngine` |
 | what is running, and are the pages answering | `status.cmd` |
 | apply changes you made to `.env` | `restart.cmd` |
 | look at a service log | `logs.cmd create-site`, `logs.cmd backend`, … |
 | start automatically when you log in | `autostart.cmd` (undo: `autostart.cmd -Remove`) |
-| desktop and Start-menu shortcuts | `shortcuts.cmd` (undo: `shortcuts.cmd -Remove`) |
 | the machine check again | `doctor.cmd` |
 
-After a reboot the stack does **not** start by itself unless you ran `autostart.cmd`. Start it with
-`start.cmd`; it takes about a minute.
+After a reboot the stack does **not** start by itself unless you ran `autostart.cmd`. Use **1 Start EmpiFlow**
+or `start.cmd`; it takes about a minute.
+
+---
+
+## Where the WSL disk lives
+
+The Ubuntu distribution is a 2–4 GB disk image. By default it is created at:
+
+```
+C:\ProgramData\EmpiFlow\wsl\Ubuntu-24.04
+```
+
+If `C:` is small, set `WSL_ROOT` in `.env` **before the first install**:
+
+```ini
+WSL_ROOT=D:\EmpiFlow\wsl
+```
+
+`doctor` checks free space on that drive, and the installer imports the distribution there. The setting only
+affects a **new** import; an existing distribution stays where it was created. For a machine with a large `D:`
+and a small `C:`, set it before running `Install.cmd` — after the first run, edit `.env` and reinstall the
+distribution to move it.
 
 ---
 
@@ -187,6 +228,7 @@ the two `ports:` lines:
 
 and the same for `"${METABASE_PORT:-3000}:3000"`. Then run `scripts\restart.cmd` and open
 `http://<this-laptop-ip>:8080` from the other device. Change the admin password first. Undo it the same way.
+This is for a demo, not multi-user production: the kit has not been tested with concurrent users.
 
 ---
 
@@ -214,9 +256,9 @@ docker compose --env-file .env -f compose.yml down -v
 docker rmi ghcr.io/empiflow/empiflow-kit-erpnext:v1.0.0
 ```
 
-Then delete the `C:\EmpiFlow` folder. If you installed the engine with Route B and want it gone as well,
-uninstall *Ubuntu 24.04* from Windows Settings → Apps, and turn off the two Windows features in
-*Turn Windows features on or off*.
+Then delete the `C:\EmpiFlow` folder. If you installed the engine with this kit and want it gone as well,
+uninstall *Ubuntu 24.04* from Windows Settings → Apps, delete `C:\ProgramData\EmpiFlow\wsl`, and turn off the
+two Windows features in *Turn Windows features on or off*.
 
 ---
 
@@ -225,8 +267,8 @@ uninstall *Ubuntu 24.04* from Windows Settings → Apps, and turn off the two Wi
 | | |
 |---|---|
 | the kit's settings | `C:\EmpiFlow\.env` (created by `Install.cmd`) |
+| the installer's progress log | `C:\EmpiFlow\install-log.txt` |
 | ERPNext site files and database | Docker volumes `empiflow_sites`, `empiflow_db-data` |
 | Metabase's own metadata | Docker volume `empiflow_metabase-data` |
+| the WSL Linux disk | `C:\ProgramData\EmpiFlow\wsl\Ubuntu-24.04` (or `WSL_ROOT`) |
 | container logs | `scripts\logs.cmd <service>` |
-
-Nothing is written anywhere else on the machine.

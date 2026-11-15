@@ -12,29 +12,32 @@ cd C:\EmpiFlow
 scripts\doctor.cmd          # is the machine ready?
 scripts\status.cmd          # is the stack running?
 scripts\logs.cmd create-site   # did the site get created?
+Get-Content .\install-log.txt -Tail 40   # what did the installer do last?
 ```
 
 `doctor` checks the machine without changing it; `status` shows each container and whether the two web pages
-answer. Nine times out of ten the answer is in those two.
+answer. Nine times out of ten the answer is in those two. `install-log.txt` is the full record of the last
+`Install.cmd` run, including the steps that ran in the background.
 
 ---
 
 ## The symptoms
 
-### `[FAIL] no Docker engine answers`
+### `[WARN] no Docker engine yet` — is that a problem?
 
-Docker is not installed, or not running. Two fixes:
+No. `doctor` reports it as a warning because setting up the engine is the installer's job. Double-click
+`Install.cmd`: it starts an installed engine, or installs WSL 2 + the Docker engine. Windows asks for
+administrator permission once. Details: `docs/01-install-windows.md` step 2.
 
-- **Docker Desktop** is installed but closed → start it from the Start menu, wait for the whale to stop
-  animating, run `scripts\doctor.cmd` again.
-- **Nothing is installed** → open PowerShell *as administrator* in `C:\EmpiFlow` and run
-  `Install.cmd -InstallEngine`. It installs WSL 2 + the Docker engine, asks for one restart, and finishes on the
-  second run. Details: `docs/01-install-windows.md` step 2.
+If `Install.cmd` itself ends with `[FAIL] no Docker engine`, the engine setup did not complete — read the lines
+above that message and `install-log.txt`. The common causes are a refused UAC prompt and no internet for the
+Ubuntu download.
 
 ### `The requested operation requires elevation`
 
-You ran something that changes Windows (the engine install) from a normal window. Start menu → type
-`powershell` → right-click → **Run as administrator**.
+A machine-wide change (installing WSL or Docker) was attempted from a normal window. `Install.cmd` asks for
+elevation itself; if you are running `scripts\engine-install.ps1` by hand, start PowerShell with
+right-click → **Run as administrator**.
 
 ### `running scripts is disabled on this system`
 
@@ -50,6 +53,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 - `unauthorized` — the machine is offline, or a proxy is intercepting GitHub. Check `doctor`'s `NET` row.
 - `manifest unknown` — the `.env` asks for an image tag that does not exist. Check `EMPI_IMAGE_TAG` in `.env`;
   the released tag is `v1.0.0`.
+
+### The progress window closed, or the install looks dead
+
+The long steps run in a **hidden worker**; the window you see only tails `install-log.txt`, so closing it does
+not stop the install. To watch the same log again:
+
+```powershell
+cd C:\EmpiFlow
+Get-Content .\install-log.txt -Tail 40 -Wait
+```
+
+- A new line every few seconds, or a `... still working (mm:ss elapsed)` heartbeat, means it is alive.
+- A `[empi] DONE 0` line means it finished successfully.
+- No new line for several minutes and no `DONE` line means the worker stopped. Press `Ctrl+C`, then run
+  `Install.cmd` again; it is safe to repeat (the site creation is guarded).
 
 ### The first start takes very long, or `Install.cmd` says "did not answer within 15 minutes"
 
@@ -70,6 +88,13 @@ probably short of memory. Close everything else (browser, Teams, games), then:
 scripts\stop.cmd
 scripts\start.cmd
 ```
+
+### `[FAIL] 6 GB of memory installed - this kit needs 8 GB`
+
+The machine does not meet the memory floor. This is deliberate: ERPNext, MariaDB, Redis, Metabase and the WSL
+engine run together, and below 8 GB the host starts swapping and WSL begins to time out. `doctor` reads the
+installed module capacity, so an 8 GB laptop passes even though Windows reports about 7.7 GB usable. A 6 GB
+machine is not supported; a machine at 8 GB is the designed minimum. Nothing was changed by the check.
 
 ### The laptop becomes very slow, or Docker commands hang / say `Wsl/Service/WSAETIMEDOUT`
 
@@ -102,8 +127,8 @@ After editing `.wslconfig` run `wsl --shutdown`, then `scripts\start.cmd`.
 Windows 11 24H2 and 25H2 ship `wsl.exe` as a stub; the real WSL is a Store package. The built-in
 `wsl --install` sometimes refuses to install it — that is a known Windows issue, not a kit problem.
 
-`Install.cmd -InstallEngine` handles it: when `wsl --install` fails it runs
-`winget install Microsoft.WSL`, then asks for one restart. If you are doing this by hand:
+`Install.cmd` handles it: when `wsl --install` fails it runs `winget install Microsoft.WSL`, then asks for one
+restart. If you are doing this by hand:
 
 ```powershell
 winget install --id Microsoft.WSL -e --accept-package-agreements --accept-source-agreements
@@ -111,16 +136,17 @@ winget install --id Microsoft.WSL -e --accept-package-agreements --accept-source
 wsl --version
 ```
 
-### `Install.cmd -InstallEngine` says "no WSL distribution is installed"
+### `Install.cmd` says "no WSL distribution is installed"
 
-The WSL runtime is there but no Linux distribution. Install Ubuntu 24.04:
+The WSL runtime is there but no Linux distribution. The installer normally imports the Ubuntu base image
+itself; if it cannot, install Ubuntu 24.04 by hand:
 
 ```powershell
 wsl --install -d Ubuntu-24.04 --no-launch
 ```
 
 If that fails with a Store error, open the Microsoft Store on the laptop, search **Ubuntu 24.04**, and install
-it there once — then run `Install.cmd -InstallEngine` again.
+it there once — then run `Install.cmd` again.
 
 ### `port 8080 is used by another program` (or 3000)
 
@@ -197,17 +223,18 @@ A `Traceback` there is a real error — collect it (below) and send it on.
 
 ## Collecting a support bundle
 
-When you need to ask for help, send these four files:
+When you need to ask for help, send these five files:
 
 ```powershell
 cd C:\EmpiFlow
-scripts\doctor.cmd      > $env:TEMP\empi-doctor.txt     2>&1
-scripts\status.cmd      > $env:TEMP\empi-status.txt     2>&1
-scripts\logs.cmd backend  > $env:TEMP\empi-backend.txt  2>&1
-scripts\logs.cmd create-site > $env:TEMP\empi-create.txt 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\doctor.ps1      > $env:TEMP\empi-doctor.txt     2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\status.ps1      > $env:TEMP\empi-status.txt     2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\logs.ps1 backend > $env:TEMP\empi-backend.txt  2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\logs.ps1 create-site > $env:TEMP\empi-create.txt 2>&1
+Copy-Item .\install-log.txt $env:TEMP\empi-install.txt
 ```
 
-`.env` contains your passwords — **do not** send `.env`; send the four files above.
+`.env` contains your passwords — **do not** send `.env`; send the five files above.
 
 ---
 

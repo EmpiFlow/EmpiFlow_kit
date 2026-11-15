@@ -93,6 +93,11 @@ If Docker Desktop is installed but not running, `doctor` says so by name.
 
 You only do this once per machine.
 
+> **Windows 11 24H2 / 25H2 may ask for a second restart.** On those builds WSL itself is a Microsoft Store
+> package, and the built-in `wsl.exe` cannot install it. The installer notices this, runs
+> `winget install Microsoft.WSL`, and asks for one more restart. Run `Install.cmd -InstallEngine` again
+> afterwards — that is the last one.
+>
 > **Why a restart?** WSL 2 is a small virtual machine; Windows can only start it after the feature is switched on
 > at boot. There is no way around the reboot.
 

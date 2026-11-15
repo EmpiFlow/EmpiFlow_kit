@@ -81,8 +81,46 @@ symptom: Windows reports ~0.1 GB free, WSL stops answering, and every `docker` c
 3. `scripts\start.cmd` — the stack comes back, and containers with the `unless-stopped` policy restart by
    themselves once the engine is up.
 
-You can also tell Docker Desktop to use less memory (Settings → Resources), but with the WSL engine the memory
-is managed automatically and released when the stack stops.
+The installer writes `%USERPROFILE%\.wslconfig` the first time it sets up the engine, capping WSL at 3 GB with
+6 GB of swap and returning page cache to Windows. That cap is what keeps an 8 GB laptop usable — without it
+WSL takes half of RAM and never gives the file cache back. If the file already exists the installer leaves it
+alone; the values that worked on this project's own 8 GB laptops are:
+
+```ini
+[wsl2]
+memory=3GB
+swap=6GB
+
+[experimental]
+autoMemoryReclaim=dropCache
+```
+
+After editing `.wslconfig` run `wsl --shutdown`, then `scripts\start.cmd`.
+
+### `The Windows Subsystem for Linux is not installed` / `The file cannot be accessed by the system`
+
+Windows 11 24H2 and 25H2 ship `wsl.exe` as a stub; the real WSL is a Store package. The built-in
+`wsl --install` sometimes refuses to install it — that is a known Windows issue, not a kit problem.
+
+`Install.cmd -InstallEngine` handles it: when `wsl --install` fails it runs
+`winget install Microsoft.WSL`, then asks for one restart. If you are doing this by hand:
+
+```powershell
+winget install --id Microsoft.WSL -e --accept-package-agreements --accept-source-agreements
+# restart Windows, then
+wsl --version
+```
+
+### `Install.cmd -InstallEngine` says "no WSL distribution is installed"
+
+The WSL runtime is there but no Linux distribution. Install Ubuntu 24.04:
+
+```powershell
+wsl --install -d Ubuntu-24.04 --no-launch
+```
+
+If that fails with a Store error, open the Microsoft Store on the laptop, search **Ubuntu 24.04**, and install
+it there once — then run `Install.cmd -InstallEngine` again.
 
 ### `port 8080 is used by another program` (or 3000)
 

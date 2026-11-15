@@ -29,9 +29,9 @@ No. `doctor` reports it as a warning because setting up the engine is the instal
 `Install.cmd`: it starts an installed engine, or installs WSL 2 + the Docker engine. Windows asks for
 administrator permission once. Details: `docs/01-install-windows.md` step 2.
 
-If `Install.cmd` itself ends with `[FAIL] no Docker engine`, the engine setup did not complete — read the lines
-above that message and `install-log.txt`. The common causes are a refused UAC prompt and no internet for the
-Ubuntu download.
+If `Install.cmd` itself ends with `[FAIL] the engine setup failed` or `[FAIL] the engine still does not answer`,
+the engine setup did not complete — read the lines above that message and `install-log.txt`. The common causes
+are a refused UAC prompt and no internet for the Ubuntu download.
 
 ### `The requested operation requires elevation`
 

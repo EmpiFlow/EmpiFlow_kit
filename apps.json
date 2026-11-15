@@ -1,0 +1,18 @@
+{
+  "base": {
+    "image": "frappe/erpnext",
+    "tag": "v15.125.0",
+    "url": "https://github.com/frappe/erpnext",
+    "note": "Base image. The ERPNext source is already inside it; do not add it to apps."
+  },
+  "apps": [
+    {
+      "name": "hrms",
+      "url": "https://github.com/frappe/hrms",
+      "branch": "version-15",
+      "ref": "5e12e3a3",
+      "version": "15.64.8",
+      "note": "Frappe HR. Pinned to the release commit of v15.64.8 (2026-11-11)."
+    }
+  ]
+}

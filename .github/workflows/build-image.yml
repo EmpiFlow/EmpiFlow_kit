@@ -1,0 +1,84 @@
+name: build image
+
+# Builds the ERPNext 15 + Frappe HR image from Dockerfile + apps.json and publishes it as :dev and :sha-<7>.
+# Nothing here is promoted: see promote-image.yml, which copies :dev to :vX.Y.Z after the acceptance suite
+# has passed against :dev on a real laptop (D-011).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'apps.json'
+      - 'docker/**'
+      - '.github/workflows/build-image.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/empiflow/empiflow-kit-erpnext
+
+jobs:
+  build:
+    name: build and push :dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pins from apps.json
+        id: pins
+        run: |
+          set -euo pipefail
+          echo "erpnext=$(jq -r '.base.tag' apps.json)" >> "$GITHUB_OUTPUT"
+          echo "hrms_ref=$(jq -r '.apps[0].ref' apps.json)" >> "$GITHUB_OUTPUT"
+          echo "hrms_version=$(jq -r '.apps[0].version' apps.json)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          cat apps.json
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:dev
+            ${{ env.IMAGE }}:sha-${{ steps.pins.outputs.short_sha }}
+          build-args: |
+            ERPNEXT_VERSION=${{ steps.pins.outputs.erpnext }}
+            HRMS_REF=${{ steps.pins.outputs.hrms_ref }}
+            HRMS_VERSION=${{ steps.pins.outputs.hrms_version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.pins.outputs.build_date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: What was published
+        run: |
+          {
+            echo "### Image published"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| tags | \`${{ env.IMAGE }}:dev\` · \`${{ env.IMAGE }}:sha-${{ steps.pins.outputs.short_sha }}\` |"
+            echo "| ERPNext | \`${{ steps.pins.outputs.erpnext }}\` |"
+            echo "| HRMS | \`${{ steps.pins.outputs.hrms_version }}\` (\`${{ steps.pins.outputs.hrms_ref }}\`) |"
+            echo "| commit | \`${{ github.sha }}\` |"
+            echo ""
+            echo "Not promoted. Run **promote image** once \`dev\` has passed the acceptance suite."
+          } >> "$GITHUB_STEP_SUMMARY"

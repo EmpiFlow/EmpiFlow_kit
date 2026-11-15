@@ -1,0 +1,30 @@
+# --- local workflow record: never published (D-004) ---
+session-analysis/
+decisions/
+todo/
+audit/
+tools/
+internal/
+.claude/
+.opencode/
+AGENTS.md
+CLAUDE.md
+NOW.md
+opencode.json
+reply.md
+superseded/
+
+# --- secrets and machine state ---
+.env
+.env.*
+!.env.example
+*.local
+
+# --- OS noise ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- scratch space used while building/testing (never published) ---
+.work/
+*.log

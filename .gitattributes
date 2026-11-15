@@ -1,0 +1,15 @@
+# Line endings matter: the container scripts are bash and must never see a CRLF.
+*.sh            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+Dockerfile      text eol=lf
+*.json          text eol=lf
+
+# PowerShell must keep CRLF on Windows to run under Windows PowerShell 5.1.
+*.ps1           text eol=crlf
+*.cmd           text eol=crlf
+
+*.env           text eol=lf
+.env.example    text eol=lf
+.gitattributes  text eol=lf
+.gitignore      text eol=lf

@@ -1,0 +1,11 @@
+.git
+.github
+.work
+.env
+*.md
+audit
+session-analysis
+decisions
+todo
+tools
+internal

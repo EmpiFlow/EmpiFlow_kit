@@ -1,7 +1,9 @@
 ﻿# EmpiFlow kit - shared helpers. Dot-source this file; never run it directly.
 # Written for Windows PowerShell 5.1 (the shell a client gets by double-clicking), not only PowerShell 7.
 
-$ErrorActionPreference = 'Stop'
+# Deliberately NOT `$ErrorActionPreference = 'Stop'`: every native tool Windows gives us (wsl.exe,
+# docker, netstat) writes progress and warnings to stderr, and Stop turns those into terminating errors.
+# Individual calls use -ErrorAction / try-catch where a failure really must stop the script.
 
 $script:KitRoot     = Split-Path -Parent $PSScriptRoot
 $script:ComposeFile = Join-Path $KitRoot 'compose.yml'
@@ -35,10 +37,25 @@ function Test-IsElevated {
 }
 
 function Get-WslDistros {
-    # wsl.exe writes UTF-16; Windows PowerShell decodes it with NULs between characters.
-    $raw = & wsl.exe -l -q 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $raw) { return @() }
-    return @($raw | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
+    # wsl.exe writes UTF-16 (PowerShell decodes it with NULs between characters) and, on a machine where
+    # WSL was never installed, writes its "not installed" notice to stderr. Both are handled here: a
+    # machine without WSL must return an empty list, never an exception (measured on the G2 laptop).
+    if (-not (Test-CommandExists 'wsl.exe')) { return @() }
+    $raw = @()
+    try {
+        $raw = @(& wsl.exe -l -q 2>$null)
+    }
+    catch { return @() }
+    if (-not $raw -or $raw.Count -eq 0) { return @() }
+    $names = @()
+    foreach ($line in $raw) {
+        if ($line -isnot [string]) { continue }
+        $name = ($line -replace "`0", '').Trim()
+        if (-not $name) { continue }
+        if ($name -match '\s') { continue }          # the notice is a sentence; distro names never have spaces
+        $names += $name
+    }
+    return $names
 }
 
 function Get-TotalRamGb {

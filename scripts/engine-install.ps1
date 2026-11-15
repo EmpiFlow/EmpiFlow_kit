@@ -91,11 +91,16 @@ autoMemoryReclaim=dropCache
 
 # ?? phase 2: WSL runtime ????????????????????????????????????????????????????
 Write-Head 'WSL 2'
-$wslOk = $true
-try {
-    $null = & $script:WslExe --version 2>$null
-    if ($LASTEXITCODE -ne 0) { $wslOk = $false }
-} catch { $wslOk = $false }
+$verProbe = Invoke-WslTimed -Arguments @('--version') -TimeoutSeconds 25 -UnicodeOutput
+$wslOk = (-not $verProbe.TimedOut) -and (($verProbe.Output -join ' ') -match 'WSL version')
+if (-not $wslOk -and $verProbe.TimedOut) {
+    # A wedged WSL service is the one failure that looks exactly like "nothing happens". Recover it once.
+    Write-Warn 'WSL did not answer within 25 s - restarting the WSL service'
+    & $script:WslExe --shutdown 2>$null | Out-Null
+    Start-Sleep -Seconds 3
+    $verProbe = Invoke-WslTimed -Arguments @('--version') -TimeoutSeconds 25 -UnicodeOutput
+    $wslOk = (-not $verProbe.TimedOut) -and (($verProbe.Output -join ' ') -match 'WSL version')
+}
 
 if (-not $wslOk) {
     Write-Step 'installing the WSL 2 runtime (this downloads ~100 MB)'
@@ -175,9 +180,11 @@ echo "docker: $(docker --version)"
 '@
 
 Write-Step 'installing Docker (first run only, a few minutes)'
-$out = & $script:WslExe -d $target -u root -e bash -c $bootstrap 2>&1
-$out | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
-if ($LASTEXITCODE -ne 0) {
+$bootstrapProbe = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'bash', '-c', $bootstrap) -TimeoutSeconds 1500
+$out = @($bootstrapProbe.Output) + @($bootstrapProbe.Error)
+$out | ForEach-Object { if ("$_".Trim()) { Write-Host "         $_" -ForegroundColor DarkGray } }
+$dockerNow = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'bash', '-c', 'command -v docker') -TimeoutSeconds 30
+if ($bootstrapProbe.TimedOut -or -not ($dockerNow.Output -join '').Trim()) {
     Write-Bad 'the Docker installation inside WSL failed'
     Write-Note ('Check that the WSL distribution can reach the internet:  wsl -d {0} -u root -- apt-get update' -f $target)
     exit 1
@@ -185,15 +192,20 @@ if ($LASTEXITCODE -ne 0) {
 
 # systemd makes docker start with the distribution (WSL starts it on demand).
 Write-Step 'enabling systemd and the docker service'
-$null = & $script:WslExe -d $target -u root -e bash -c 'grep -qs "^systemd=true" /etc/wsl.conf || printf "[boot]\nsystemd=true\n" >> /etc/wsl.conf'
+$null = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'bash', '-c',
+    'grep -qs "^systemd=true" /etc/wsl.conf || printf "[boot]\nsystemd=true\n" >> /etc/wsl.conf') -TimeoutSeconds 30
 & $script:WslExe --terminate $target 2>$null | Out-Null
 Start-Sleep -Seconds 3
-$null = & $script:WslExe -d $target -u root -e bash -c 'systemctl enable --now docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true'
+$null = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'bash', '-c',
+    'systemctl enable --now docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true') -TimeoutSeconds 120
 
 $ready = $false
+$v = ''
 for ($i = 0; $i -lt 30; $i++) {
-    $v = & $script:WslExe -d $target -u root -e bash -c 'docker info --format "{{.ServerVersion}}" 2>/dev/null'
-    if ($LASTEXITCODE -eq 0 -and $v) { $ready = $true; break }
+    $probe = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'bash', '-c',
+        'docker info --format "{{.ServerVersion}}" 2>/dev/null') -TimeoutSeconds 45
+    $v = ($probe.Output -join '').Trim()
+    if (-not $probe.TimedOut -and $probe.Code -eq 0 -and $v) { $ready = $true; break }
     Start-Sleep -Seconds 2
 }
 
@@ -203,7 +215,8 @@ if (-not $ready) {
     exit 1
 }
 
-$compose = (& $script:WslExe -d $target -u root -e docker compose version --short 2>$null | Select-Object -First 1)
+$composeProbe = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'docker', 'compose', 'version', '--short') -TimeoutSeconds 60
+$compose = ($composeProbe.Output | Select-Object -First 1)
 Write-Host ''
 Write-Ok ("Docker {0} is running inside WSL ({1})" -f "$v".Trim(), $target)
 Write-Ok ("docker compose {0}" -f "$compose".Trim())

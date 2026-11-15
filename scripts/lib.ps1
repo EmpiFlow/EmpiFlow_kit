@@ -41,12 +41,11 @@ function Get-WslDistros {
     # wsl.exe writes UTF-16 (PowerShell decodes it with NULs between characters) and, on a machine where
     # WSL was never installed, writes its "not installed" notice to stderr. Both are handled here: a
     # machine without WSL must return an empty list, never an exception (measured on the G2 laptop).
-    if (-not (Test-Path )) { return @() }
-    $raw = @()
-    try {
-        $raw = @(& $script:WslExe -l -q 2>$null)
-    }
-    catch { return @() }
+    # A *wedged* WSL service must also return an empty list rather than hang - hence the timeout.
+    if (-not (Test-Path $script:WslExe)) { return @() }
+    $probe = Invoke-WslTimed -Arguments @('-l', '-q') -TimeoutSeconds 25 -UnicodeOutput
+    if ($probe.TimedOut) { return @() }
+    $raw = @($probe.Output)
     if (-not $raw -or $raw.Count -eq 0) { return @() }
     $names = @()
     foreach ($line in $raw) {
@@ -122,6 +121,58 @@ function Get-KitImage {
 }
 
 # ?? Docker engine ????????????????????????????????????????????????????????????
+# Run wsl.exe with a hard timeout. A wedged WSL service otherwise blocks the installer forever with a
+# blinking cursor and no message - measured on the G2 laptop, where `wsl -l -q` never returned.
+function ConvertTo-WslArgumentString {
+    # Start-Process takes one string, not an argv array: quote anything with spaces or quotes so wsl.exe
+    # (and the shell behind -c) receives exactly one argument.
+    param([string[]]$Arguments)
+    $parts = @()
+    foreach ($a in $Arguments) {
+        if ($a -match '[\s"]') { $parts += ('"' + ($a -replace '"', '\"') + '"') }
+        else { $parts += $a }
+    }
+    return ($parts -join ' ')
+}
+
+function Invoke-WslTimed {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [int]$TimeoutSeconds = 30,
+        [switch]$UnicodeOutput
+    )
+    $outFile = [System.IO.Path]::GetTempFileName()
+    $errFile = [System.IO.Path]::GetTempFileName()
+    $result = @{ TimedOut = $false; Code = 0; Output = @(); Error = @() }
+    try {
+        $p = Start-Process -FilePath $script:WslExe -ArgumentList (ConvertTo-WslArgumentString $Arguments) -NoNewWindow -PassThru `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $p.Kill() } catch { }
+            $result.TimedOut = $true
+            $result.Code = -1
+            return $result
+        }
+        # Settle: the parameterless WaitForExit flushes the redirected streams. ExitCode from
+        # Start-Process -PassThru is unreliable in Windows PowerShell 5.1 (measured: stays $null),
+        # so callers judge success by the content of Output instead.
+        $p.WaitForExit()
+        $enc = 'Default'
+        if ($UnicodeOutput) { $enc = 'Unicode' }
+        $result.Output = @(Get-Content -LiteralPath $outFile -Encoding $enc -ErrorAction SilentlyContinue)
+        $result.Error = @(Get-Content -LiteralPath $errFile -Encoding $enc -ErrorAction SilentlyContinue)
+        return $result
+    }
+    catch {
+        $result.Code = -1
+        $result.Error = @("$($_.Exception.Message)")
+        return $result
+    }
+    finally {
+        Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-EmpiEngine {
     param([switch]$Refresh)
     if ($script:Engine -and -not $Refresh) { return $script:Engine }
@@ -137,9 +188,12 @@ function Get-EmpiEngine {
 
     # 2. Docker Engine inside a WSL distribution (this laptop, and the kit's own engine-install.ps1 route).
     foreach ($distro in (Get-WslDistros)) {
-        $v = & $script:WslExe -d $distro -u root -e bash -c 'docker info --format "{{.ServerVersion}}" 2>/dev/null' 2>$null
-        if ($LASTEXITCODE -eq 0 -and $v) {
-            $wslRoot = (& $script:WslExe -d $distro -e wslpath -a $script:KitRoot 2>$null | Select-Object -First 1)
+        $probe = Invoke-WslTimed -Arguments @('-d', $distro, '-u', 'root', '-e', 'bash', '-c',
+            'docker info --format "{{.ServerVersion}}" 2>/dev/null') -TimeoutSeconds 45
+        $v = ($probe.Output -join '').Trim()
+        if (-not $probe.TimedOut -and $v) {
+            $rootProbe = Invoke-WslTimed -Arguments @('-d', $distro, '-e', 'wslpath', '-a', $script:KitRoot) -TimeoutSeconds 20
+            $wslRoot = ($rootProbe.Output | Select-Object -First 1)
             if (-not $wslRoot) { $wslRoot = $script:KitRoot -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1' }
             $script:Engine = [pscustomobject]@{ Kind = 'wsl'; Distro = $distro; WslRoot = "$wslRoot".Trim(); Version = "$v".Trim() }
             return $script:Engine
@@ -162,7 +216,8 @@ function Start-EmpiEngine {
         }
     }
     foreach ($distro in (Get-WslDistros)) {
-        & $script:WslExe -d $distro -u root -e bash -c 'systemctl start docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true' 2>$null | Out-Null
+        $null = Invoke-WslTimed -Arguments @('-d', $distro, '-u', 'root', '-e', 'bash', '-c',
+            'systemctl start docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true') -TimeoutSeconds 60
     }
 
     for ($i = 0; $i -lt 30; $i++) {
@@ -181,15 +236,31 @@ function Invoke-Docker {
     $engine = Get-EmpiEngine
     if (-not $engine) { throw 'No Docker engine found. Run scripts\doctor.ps1 for the fix.' }
 
-    if ($engine.Kind -eq 'windows') {
-        Push-Location $script:KitRoot
-        try { & docker @Arguments } finally { Pop-Location }
+    # The WSL VM occasionally stops answering for a few seconds while Windows pages memory
+    # (Wsl/Service/WSAETIMEDOUT, seen on both laptops). One retry turns a spurious failure into a pause.
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        $output = @()
+        if ($engine.Kind -eq 'windows') {
+            Push-Location $script:KitRoot
+            try { $output = @(& docker @Arguments 2>&1) } finally { Pop-Location }
+        }
+        else {
+            $output = @(& $script:WslExe -d $engine.Distro -u root --cd $engine.WslRoot -e docker @Arguments 2>&1)
+        }
+        $code = $LASTEXITCODE
+        $text = ($output -join "`n")
+        if ($code -ne 0 -and $text -match 'WSAETIMEDOUT' -and $attempt -lt 3) {
+            Start-Sleep -Seconds 5
+            $null = Start-EmpiEngine
+            continue
+        }
+        break
     }
-    else {
-        & $script:WslExe -d $engine.Distro -u root --cd $engine.WslRoot -e docker @Arguments
-    }
-    if (-not $AllowFailure -and $LASTEXITCODE -ne 0) {
-        throw "docker $($Arguments -join ' ') failed (exit $LASTEXITCODE)"
+    $output | ForEach-Object { $_ }
+    if (-not $AllowFailure -and $code -ne 0) {
+        throw "docker $($Arguments -join ' ') failed (exit $code)"
     }
 }
 

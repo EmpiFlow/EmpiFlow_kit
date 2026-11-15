@@ -102,7 +102,9 @@ The machine is out of RAM. The whole stack needs about 2.5 GB; Windows needs the
 symptom: Windows reports ~0.1 GB free, WSL stops answering, and every `docker` command times out.
 
 1. Close everything you are not using (browser tabs are the usual culprit).
-2. Free the WSL memory: `wsl --shutdown` in PowerShell (this stops the containers; **data is kept**).
+2. Free the WSL memory: `scripts\stop.cmd` (stops the containers and the kit's WSL distribution; **data is kept**).
+   By hand, `wsl --terminate Ubuntu-24.04` stops only the kit's distribution; `wsl --shutdown` stops every
+   distribution on the machine.
 3. `scripts\start.cmd` — the stack comes back, and containers with the `unless-stopped` policy restart by
    themselves once the engine is up.
 

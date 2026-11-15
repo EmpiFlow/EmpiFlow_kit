@@ -20,9 +20,10 @@ Invoke-Compose -Arguments @('stop') -AllowFailure | Out-Null
 Write-Ok 'the containers are stopped; your data is kept.'
 
 if ($engine.Kind -eq 'wsl' -and -not $KeepEngine) {
-    Write-Step 'stopping WSL and its Docker engine (this frees the memory)'
-    & $script:WslExe --shutdown 2>$null | Out-Null
-    Write-Ok 'WSL is stopped.'
+    Write-Step ('stopping WSL and its Docker engine ({0}); this frees the memory' -f $engine.Distro)
+    # Terminate only the kit's distribution, not every WSL distribution the client may use for other work.
+    & $script:WslExe --terminate $engine.Distro 2>$null | Out-Null
+    Write-Ok ('WSL is stopped ({0}).' -f $engine.Distro)
 } elseif ($engine.Kind -eq 'windows') {
     Write-Note 'Docker Desktop is left running - other programs may be using it.'
 }

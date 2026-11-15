@@ -39,10 +39,11 @@ EmpiFlow kit - machine check
   [ OK ] 42.3 GB free on C: (the WSL disk)
   [WARN] no Docker engine yet - Install.cmd sets one up (WSL 2 + Docker Engine)
   [ OK ] virtualisation available
-  [ OK ] WSL memory cap set (memory=3GB)
+  [WARN] WSL is not set up yet - Install.cmd does it (one restart may be needed)
+  [WARN] WSL memory cap is not set yet
   [ OK ] port 8080 is free (ERPNext)
   ...
-12 checks: 9 OK, 3 warning(s), 0 problem(s)
+12 checks: 8 OK, 4 warning(s), 0 problem(s)
 
 This machine can run the EmpiFlow kit.
 Next: double-click Install.cmd - it sets up WSL and Docker for you.

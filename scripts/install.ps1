@@ -47,6 +47,10 @@ function Get-Setting {
 
 function Invoke-EmpiInstallLauncher {
     $script:LauncherCode = 1
+    if ($WslRoot -and (Test-Path $script:EnvFile)) {
+        Write-Warn '-WslRoot is only used on the first install; .env already exists, so WSL_ROOT in .env wins.'
+        $WslRoot = ''
+    }
     Write-Plain ''
     Write-Plain 'EmpiFlow kit - installer'
     Write-Plain 'ERPNext 15 + Frappe HR + Metabase, on this laptop only.'

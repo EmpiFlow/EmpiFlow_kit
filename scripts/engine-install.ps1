@@ -120,18 +120,34 @@ if (-not $wslOk) {
 Write-Ok 'WSL 2 is available'
 
 # ?? phase 2b: a Linux distribution ??????????????????????????????????????????
+# Primary route: import the official Ubuntu base rootfs. It is 30 MB, needs no Microsoft Store, no
+# first-run account and no interactive window - all of which the Store installer does (measured on the
+# G2 laptop: `wsl --install -d Ubuntu-24.04` hung with 2 CPU-seconds in 25 minutes).
 $distros = @(Get-WslDistros)
 if ($distros.Count -eq 0) {
-    Write-Step ("installing {0} (this downloads ~300 MB)" -f $Distro)
-    & $script:WslExe --install -d $Distro --no-launch --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Step 'retrying through the Microsoft Store'
-        & $script:WslExe --install -d $Distro --no-launch 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+    $imported = $false
+    Write-Step ("creating {0} from the official Ubuntu base image (downloads ~30 MB, no Store needed)" -f $Distro)
+    try {
+        $tarPath = Join-Path $env:TEMP 'ubuntu-base-24.04.tar.gz'
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri 'https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-amd64.tar.gz' `
+            -OutFile $tarPath -TimeoutSec 900
+        $rootDir = Join-Path $env:ProgramData ("EmpiFlow\wsl\" + $Distro)
+        New-Item -ItemType Directory -Force -Path $rootDir | Out-Null
+        & $script:WslExe --import $Distro $rootDir $tarPath --version 2 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+        $distros = @(Get-WslDistros)
+        $imported = ($distros.Count -gt 0)
     }
-    $distros = @(Get-WslDistros)
+    catch { $imported = $false }
+
+    if (-not $imported) {
+        Write-Step 'falling back to the Microsoft Store installer'
+        & $script:WslExe --install -d $Distro --no-launch --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+        $distros = @(Get-WslDistros)
+    }
     if ($distros.Count -eq 0) {
         Write-Bad 'no WSL distribution is installed'
-        Write-Note 'Run this from a window that has internet, or install Ubuntu 24.04 from the Microsoft Store.'
+        Write-Note 'Check the internet connection, then run Install.cmd -InstallEngine again.'
         exit 1
     }
 }

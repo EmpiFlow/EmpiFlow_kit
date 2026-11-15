@@ -59,6 +59,36 @@ if ($needReboot) {
     exit 3
 }
 
+# --- phase 1b: memory caps. WSL2 takes half of RAM by default and never gives page cache back, which on an
+# 8 GB laptop is how the whole machine (and WSL itself) stops answering. Measured on this project's own
+# hardware: 3 GB + 6 GB swap + dropCache keeps the stack alive with Windows still usable (MG's own
+# install notes, D:\OpenCode\MGDesktop\Install_Frappe_Stack_CafApp).
+Write-Head 'Memory settings'
+$wslConfig = Join-Path $env:USERPROFILE '.wslconfig'
+if (Test-Path $wslConfig) {
+    Write-Ok '.wslconfig already exists - leaving it alone'
+    Write-Note 'if the laptop becomes unresponsive, cap WSL: [wsl2] memory=3GB / swap=6GB'
+} else {
+    Write-Step 'writing .wslconfig (WSL gets 3 GB, the rest stays with Windows)'
+    $content = @"
+# EmpiFlow kit - WSL2 resource caps for an 8 GB laptop.
+# Written once by scripts\engine-install.ps1; delete this file to return to Windows defaults.
+[general]
+instanceIdleTimeout=-1
+
+[wsl2]
+memory=3GB
+swap=6GB
+vmIdleTimeout=-1
+
+[experimental]
+autoMemoryReclaim=dropCache
+"@
+    [System.IO.File]::WriteAllText($wslConfig, $content, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Ok ("wrote " + $wslConfig)
+    & $script:WslExe --shutdown 2>$null | Out-Null
+}
+
 # ?? phase 2: WSL runtime ????????????????????????????????????????????????????
 Write-Head 'WSL 2'
 $wslOk = $true

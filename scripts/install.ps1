@@ -48,8 +48,10 @@ function Get-Setting {
 function Invoke-EmpiInstallLauncher {
     $script:LauncherCode = 1
     if ($WslRoot -and (Test-Path $script:EnvFile)) {
-        Write-Warn '-WslRoot is only used on the first install; .env already exists, so WSL_ROOT in .env wins.'
-        $WslRoot = ''
+        # Keep the setting in step with the flag without rewriting .env (comments/advanced keys survive).
+        if (Set-EnvValue -Name 'WSL_ROOT' -Value $WslRoot) {
+            Write-Ok ("updated WSL_ROOT in " + $script:EnvFile)
+        }
     }
     Write-Plain ''
     Write-Plain 'EmpiFlow kit - installer'

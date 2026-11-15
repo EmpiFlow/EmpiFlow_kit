@@ -290,6 +290,26 @@ function Read-EnvFile {
     return $table
 }
 
+function Set-EnvValue {
+    # Change one key in an existing .env without rewriting the file (comments and advanced keys survive).
+    param([Parameter(Mandatory = $true)][string]$Name, [string]$Value, [string]$Path = '')
+    if (-not $Path) { $Path = $script:EnvFile }
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    $lines = @(Get-Content -LiteralPath $Path)
+    $found = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match ('^\s*' + [regex]::Escape($Name) + '\s*=')) {
+            $lines[$i] = "$Name=$Value"
+            $found = $true
+            break
+        }
+    }
+    if (-not $found) { $lines += "$Name=$Value" }
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, (($lines -join "`n") + "`n"), $utf8NoBom)
+    return $true
+}
+
 function Write-EnvFile {
     param([hashtable]$Values)
     $order = @('SITE_NAME', 'ADMIN_PASSWORD', 'DB_PASSWORD', 'MB_RO_PASSWORD',

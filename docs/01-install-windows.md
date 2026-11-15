@@ -201,17 +201,16 @@ The Ubuntu distribution is a 2–4 GB disk image. By default it is created at:
 C:\ProgramData\EmpiFlow\wsl\Ubuntu-24.04
 ```
 
-If `C:` is small, put it on another drive **on the first run**. Open Windows PowerShell in the kit folder and
-run:
+If `C:` is small, put it on another drive **before the WSL disk is created**. Open Windows PowerShell in the kit
+folder and run:
 
 ```powershell
 .\Install.cmd -WslRoot D:\EmpiFlow\wsl
 ```
 
-`doctor` then checks free space on `D:`, and the installer writes `WSL_ROOT` into `.env` and imports the
-distribution there. You can also edit `WSL_ROOT` in `.env` by hand after a first run; the setting only affects a
-**new** import, so an existing distribution stays where it was created. On a machine with a large `D:` and a
-small `C:`, use the flag or edit `.env` before the first install.
+`doctor` then checks free space on `D:`, and the installer writes or updates `WSL_ROOT` in `.env` and imports the
+distribution there. You can also edit `WSL_ROOT` in `.env` by hand; the setting only affects a **new** import, so
+an existing distribution stays where it was created.
 
 ---
 

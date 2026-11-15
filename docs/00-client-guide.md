@@ -101,6 +101,8 @@ symptom this kit has actually produced.
 - **One person at a time.** A few concurrent browsers may work, but this kit is for testing, not production.
 - **WSL gets 3 GB.** The installer writes `%USERPROFILE%\.wslconfig` (`memory=3GB`, `swap=6GB`,
   `autoMemoryReclaim=dropCache`). Without that cap an 8 GB laptop can freeze.
+- **The WSL disk is 2–4 GB on `C:`** by default. If `C:` is small, run `.\Install.cmd -WslRoot D:\EmpiFlow\wsl`
+  from PowerShell on the first install.
 - **Docker Desktop is optional.** If you use it, Docker's own licence terms apply; the kit's own engine needs no
   Docker Desktop.
 

@@ -88,14 +88,11 @@ $engine = Get-EmpiEngine
 if (-not $engine) {
     if ($InstallEngine) {
         Write-Step 'no engine found - setting one up in WSL'
-        $code = 0
-        try {
-            & (Join-Path $PSScriptRoot 'engine-install.ps1') -Accept
-            $code = $LASTEXITCODE
-        } catch {
-            Write-Bad $_.Exception.Message
-            $code = 1
-        }
+        # Run it as its own process: a child script that calls `exit 3` does not reliably set
+        # $LASTEXITCODE, and the exit code is what tells us "restart Windows, then run this again".
+        $engineScript = Join-Path $PSScriptRoot 'engine-install.ps1'
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $engineScript -Accept
+        $code = $LASTEXITCODE
         if ($code -eq 3) {
             Write-Host ''
             Write-Host 'Windows has to restart once before the engine can finish.' -ForegroundColor Yellow

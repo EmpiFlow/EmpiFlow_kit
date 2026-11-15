@@ -10,6 +10,7 @@ $script:ComposeFile = Join-Path $KitRoot 'compose.yml'
 $script:EnvFile     = Join-Path $KitRoot '.env'
 $script:EnvExample  = Join-Path $KitRoot '.env.example'
 $script:Engine      = $null
+$script:WslExe      = Join-Path $env:SystemRoot 'System32\wsl.exe'
 
 # ?? output ???????????????????????????????????????????????????????????????????
 function Write-Head { param([string]$Text) Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
@@ -40,10 +41,10 @@ function Get-WslDistros {
     # wsl.exe writes UTF-16 (PowerShell decodes it with NULs between characters) and, on a machine where
     # WSL was never installed, writes its "not installed" notice to stderr. Both are handled here: a
     # machine without WSL must return an empty list, never an exception (measured on the G2 laptop).
-    if (-not (Test-CommandExists 'wsl.exe')) { return @() }
+    if (-not (Test-Path )) { return @() }
     $raw = @()
     try {
-        $raw = @(& wsl.exe -l -q 2>$null)
+        $raw = @(& $script:WslExe -l -q 2>$null)
     }
     catch { return @() }
     if (-not $raw -or $raw.Count -eq 0) { return @() }
@@ -136,9 +137,9 @@ function Get-EmpiEngine {
 
     # 2. Docker Engine inside a WSL distribution (this laptop, and the kit's own engine-install.ps1 route).
     foreach ($distro in (Get-WslDistros)) {
-        $v = & wsl.exe -d $distro -u root -e bash -c 'docker info --format "{{.ServerVersion}}" 2>/dev/null' 2>$null
+        $v = & $script:WslExe -d $distro -u root -e bash -c 'docker info --format "{{.ServerVersion}}" 2>/dev/null' 2>$null
         if ($LASTEXITCODE -eq 0 -and $v) {
-            $wslRoot = (& wsl.exe -d $distro -e wslpath -a $script:KitRoot 2>$null | Select-Object -First 1)
+            $wslRoot = (& $script:WslExe -d $distro -e wslpath -a $script:KitRoot 2>$null | Select-Object -First 1)
             if (-not $wslRoot) { $wslRoot = $script:KitRoot -replace '\\', '/' -replace '^([A-Za-z]):', '/mnt/$1' }
             $script:Engine = [pscustomobject]@{ Kind = 'wsl'; Distro = $distro; WslRoot = "$wslRoot".Trim(); Version = "$v".Trim() }
             return $script:Engine
@@ -161,7 +162,7 @@ function Start-EmpiEngine {
         }
     }
     foreach ($distro in (Get-WslDistros)) {
-        & wsl.exe -d $distro -u root -e bash -c 'systemctl start docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true' 2>$null | Out-Null
+        & $script:WslExe -d $distro -u root -e bash -c 'systemctl start docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true' 2>$null | Out-Null
     }
 
     for ($i = 0; $i -lt 30; $i++) {
@@ -185,7 +186,7 @@ function Invoke-Docker {
         try { & docker @Arguments } finally { Pop-Location }
     }
     else {
-        & wsl.exe -d $engine.Distro -u root --cd $engine.WslRoot -e docker @Arguments
+        & $script:WslExe -d $engine.Distro -u root --cd $engine.WslRoot -e docker @Arguments
     }
     if (-not $AllowFailure -and $LASTEXITCODE -ne 0) {
         throw "docker $($Arguments -join ' ') failed (exit $LASTEXITCODE)"

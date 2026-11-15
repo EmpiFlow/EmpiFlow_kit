@@ -63,26 +63,40 @@ if ($needReboot) {
 Write-Head 'WSL 2'
 $wslOk = $true
 try {
-    $null = & wsl.exe --version 2>$null
+    $null = & $script:WslExe --version 2>$null
     if ($LASTEXITCODE -ne 0) { $wslOk = $false }
 } catch { $wslOk = $false }
 
 if (-not $wslOk) {
     Write-Step 'installing the WSL 2 runtime (this downloads ~100 MB)'
-    & wsl.exe --install --no-distribution --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
-    & wsl.exe --update --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+    & $script:WslExe --install --no-distribution --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+    & $script:WslExe --update --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+    $null = & $script:WslExe --version 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        # Windows 11 24H2+/25H2 ships a wsl.exe stub that cannot install itself: WSL is an MSIX package.
+        # Measured on the G2 laptop (build 26200): `wsl --install` prints "not installed" and exits 1,
+        # while `winget install Microsoft.WSL` installs 3.0.5 and works after one restart.
+        Write-Step 'the WSL stub cannot install itself on this build - installing the package with winget'
+        & winget.exe install --id Microsoft.WSL -e --accept-package-agreements --accept-source-agreements --silent 2>&1 |
+            ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+        Write-Host ''
+        Write-Host 'WSL was installed as a Windows package and needs one restart.' -ForegroundColor Yellow
+        Write-Host 'Restart the laptop, then run Install.cmd again.' -ForegroundColor Yellow
+        Write-Host ''
+        exit 3
+    }
 }
-& wsl.exe --set-default-version 2 2>&1 | Out-Null
+& $script:WslExe --set-default-version 2 2>&1 | Out-Null
 Write-Ok 'WSL 2 is available'
 
 # ?? phase 2b: a Linux distribution ??????????????????????????????????????????
 $distros = @(Get-WslDistros)
 if ($distros.Count -eq 0) {
     Write-Step ("installing {0} (this downloads ~300 MB)" -f $Distro)
-    & wsl.exe --install -d $Distro --no-launch --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+    & $script:WslExe --install -d $Distro --no-launch --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
     if ($LASTEXITCODE -ne 0) {
         Write-Step 'retrying through the Microsoft Store'
-        & wsl.exe --install -d $Distro --no-launch 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+        & $script:WslExe --install -d $Distro --no-launch 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
     }
     $distros = @(Get-WslDistros)
     if ($distros.Count -eq 0) {
@@ -115,7 +129,7 @@ echo "docker: $(docker --version)"
 '@
 
 Write-Step 'installing Docker (first run only, a few minutes)'
-$out = & wsl.exe -d $target -u root -e bash -c $bootstrap 2>&1
+$out = & $script:WslExe -d $target -u root -e bash -c $bootstrap 2>&1
 $out | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
 if ($LASTEXITCODE -ne 0) {
     Write-Bad 'the Docker installation inside WSL failed'
@@ -125,14 +139,14 @@ if ($LASTEXITCODE -ne 0) {
 
 # systemd makes docker start with the distribution (WSL starts it on demand).
 Write-Step 'enabling systemd and the docker service'
-$null = & wsl.exe -d $target -u root -e bash -c 'grep -qs "^systemd=true" /etc/wsl.conf || printf "[boot]\nsystemd=true\n" >> /etc/wsl.conf'
-& wsl.exe --terminate $target 2>$null | Out-Null
+$null = & $script:WslExe -d $target -u root -e bash -c 'grep -qs "^systemd=true" /etc/wsl.conf || printf "[boot]\nsystemd=true\n" >> /etc/wsl.conf'
+& $script:WslExe --terminate $target 2>$null | Out-Null
 Start-Sleep -Seconds 3
-$null = & wsl.exe -d $target -u root -e bash -c 'systemctl enable --now docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true'
+$null = & $script:WslExe -d $target -u root -e bash -c 'systemctl enable --now docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true'
 
 $ready = $false
 for ($i = 0; $i -lt 30; $i++) {
-    $v = & wsl.exe -d $target -u root -e bash -c 'docker info --format "{{.ServerVersion}}" 2>/dev/null'
+    $v = & $script:WslExe -d $target -u root -e bash -c 'docker info --format "{{.ServerVersion}}" 2>/dev/null'
     if ($LASTEXITCODE -eq 0 -and $v) { $ready = $true; break }
     Start-Sleep -Seconds 2
 }
@@ -143,7 +157,7 @@ if (-not $ready) {
     exit 1
 }
 
-$compose = (& wsl.exe -d $target -u root -e docker compose version --short 2>$null | Select-Object -First 1)
+$compose = (& $script:WslExe -d $target -u root -e docker compose version --short 2>$null | Select-Object -First 1)
 Write-Host ''
 Write-Ok ("Docker {0} is running inside WSL ({1})" -f "$v".Trim(), $target)
 Write-Ok ("docker compose {0}" -f "$compose".Trim())

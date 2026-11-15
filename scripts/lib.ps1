@@ -11,14 +11,153 @@ $script:EnvFile     = Join-Path $KitRoot '.env'
 $script:EnvExample  = Join-Path $KitRoot '.env.example'
 $script:Engine      = $null
 $script:WslExe      = Join-Path $env:SystemRoot 'System32\wsl.exe'
+$script:LogFile     = $null
 
 # ?? output ???????????????????????????????????????????????????????????????????
-function Write-Head { param([string]$Text) Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
-function Write-Ok   { param([string]$Text) Write-Host "  [ OK ] $Text" -ForegroundColor Green }
-function Write-Warn { param([string]$Text) Write-Host "  [WARN] $Text" -ForegroundColor Yellow }
-function Write-Bad  { param([string]$Text) Write-Host "  [FAIL] $Text" -ForegroundColor Red }
-function Write-Note { param([string]$Text) Write-Host "         $Text" -ForegroundColor DarkGray }
-function Write-Step { param([string]$Text) Write-Host "  -> $Text" -ForegroundColor Gray }
+# Every helper writes to the console *and* to the log file when one is set. That is what lets the
+# installer run headless while a second, visible window tails the log (engine-quirks.md section 8).
+function Set-EmpiLog {
+    param([string]$Path)
+    if (-not $Path) { return }
+    try {
+        $dir = Split-Path -Parent $Path
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        if (-not (Test-Path -LiteralPath $Path)) {
+            [System.IO.File]::WriteAllText($Path, '', (New-Object System.Text.UTF8Encoding($false)))
+        }
+        $script:LogFile = $Path
+    } catch { $script:LogFile = $null }
+}
+
+function Write-EmpiLog {
+    param([string]$Text)
+    if (-not $script:LogFile) { return }
+    try {
+        $stamp = (Get-Date).ToString('HH:mm:ss')
+        # One physical line per entry: docker progress output can carry CR/LF fragments.
+        $flat = ($Text -replace "`r", '' -replace "`n", ' / ')
+        $line = "[$stamp] $flat"
+        [System.IO.File]::AppendAllText($script:LogFile, $line + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    } catch { }
+}
+
+function Write-Head { param([string]$Text) Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan; Write-EmpiLog ''; Write-EmpiLog "== $Text" }
+function Write-Ok   { param([string]$Text) Write-Host "  [ OK ] $Text" -ForegroundColor Green; Write-EmpiLog "  [ OK ] $Text" }
+function Write-Warn { param([string]$Text) Write-Host "  [WARN] $Text" -ForegroundColor Yellow; Write-EmpiLog "  [WARN] $Text" }
+function Write-Bad  { param([string]$Text) Write-Host "  [FAIL] $Text" -ForegroundColor Red; Write-EmpiLog "  [FAIL] $Text" }
+function Write-Note { param([string]$Text) Write-Host "         $Text" -ForegroundColor DarkGray; Write-EmpiLog "         $Text" }
+function Write-Step { param([string]$Text) Write-Host "  -> $Text" -ForegroundColor Gray; Write-EmpiLog "  -> $Text" }
+function Write-Detail { param([string]$Text) Write-Host "         $Text" -ForegroundColor DarkGray; Write-EmpiLog "         $Text" }
+function Write-Plain { param([string]$Text) Write-Host $Text; Write-EmpiLog $Text }
+
+# Show a log file that a hidden worker is writing, with a heartbeat when it goes quiet.
+# The worker cannot be paused by a click in this window (engine-quirks.md section 8).
+function Show-LiveLog {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [int]$WorkerPid = 0,
+        [int]$TimeoutMinutes = 45,
+        [string]$Title = 'EmpiFlow installer'
+    )
+    $start = Get-Date
+    $deadline = $start.AddMinutes($TimeoutMinutes)
+    $seen = 0
+    $lastOutput = Get-Date
+    $done = $false
+    $final = $false
+    $code = $null
+
+    try { $Host.UI.RawUI.WindowTitle = $Title } catch { }
+    Write-Host ''
+    Write-Host "== $Title" -ForegroundColor Cyan
+    Write-Host '   The work runs in the background. This window shows its log; you can keep working.' -ForegroundColor DarkGray
+    Write-Host ''
+
+    while (-not $done) {
+        $text = ''
+        if (Test-Path -LiteralPath $Path) {
+            try {
+                $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                try {
+                    $sr = New-Object System.IO.StreamReader($fs, (New-Object System.Text.UTF8Encoding($false)))
+                    $text = $sr.ReadToEnd()
+                    $sr.Dispose()
+                } finally { $fs.Dispose() }
+            } catch { $text = '' }
+        }
+
+        $newLines = 0
+        if ($text) {
+            $complete = $text
+            if (-not $text.EndsWith("`n")) {
+                $idx = $text.LastIndexOf("`n")
+                if ($idx -ge 0) { $complete = $text.Substring(0, $idx + 1) } else { $complete = '' }
+            }
+            if ($complete) {
+                $lines = @($complete -split "`n")
+                if ($lines.Count -gt 1 -and $lines[$lines.Count - 1] -eq '') { $lines = @($lines[0..($lines.Count - 2)]) }
+                elseif ($lines.Count -eq 1 -and $lines[0] -eq '') { $lines = @() }
+                for ($i = $seen; $i -lt $lines.Count; $i++) {
+                    $line = $lines[$i].TrimEnd("`r")
+                    # The log writer prefixes every line with [HH:mm:ss], so the marker is not at column 1.
+                    if ($line -match '^(?:\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]\s*)?\[empi\] DONE (-?\d+)$') {
+                        $code = [int]$Matches[1]
+                        $done = $true
+                        break
+                    }
+                    $color = 'Gray'
+                    if ($line -match '\[ OK \]') { $color = 'Green' }
+                    elseif ($line -match '\[WARN\]') { $color = 'Yellow' }
+                    elseif ($line -match '\[FAIL\]') { $color = 'Red' }
+                    elseif ($line -match '^==') { $color = 'Cyan' }
+                    elseif ($line -match '^\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\]') { $color = 'Gray' }
+                    Write-Host $line -ForegroundColor $color
+                    $newLines++
+                }
+                $seen = $lines.Count
+            }
+        }
+        if ($done) { break }
+        if ($newLines -gt 0) { $lastOutput = Get-Date }
+
+        if (-not $final -and $WorkerPid -gt 0) {
+            $proc = Get-Process -Id $WorkerPid -ErrorAction SilentlyContinue
+            if (-not $proc) {
+                $final = $true
+                $WorkerPid = 0
+                Start-Sleep -Milliseconds 400
+                continue
+            }
+        }
+        if ($final) {
+            if ($null -eq $code) { $code = -1 }
+            break
+        }
+        if ((Get-Date) -gt $deadline) {
+            Write-Host ''
+            Write-Host ('   The installer has been silent for more than {0} minutes.' -f $TimeoutMinutes) -ForegroundColor Yellow
+            Write-Host '   It may still be running; the log is at:' -ForegroundColor Yellow
+            Write-Host "   $Path" -ForegroundColor Yellow
+            if ($null -eq $code) { $code = -2 }
+            break
+        }
+        if (((Get-Date) - $lastOutput).TotalSeconds -ge 10) {
+            $elapsed = (Get-Date) - $start
+            Write-Host ("   ... still working ({0:mm\:ss} elapsed)" -f $elapsed) -ForegroundColor DarkGray
+            $lastOutput = Get-Date
+        }
+        Start-Sleep -Milliseconds 500
+    }
+
+    Write-Host ''
+    switch ($code) {
+        0  { Write-Host '== Finished.' -ForegroundColor Green }
+        3  { Write-Host '== A restart is needed. See the lines above.' -ForegroundColor Yellow }
+        -2 { Write-Host '== No completion marker found; see the log above.' -ForegroundColor Yellow }
+        default { Write-Host '== Stopped without finishing. See the lines above.' -ForegroundColor Red }
+    }
+    return $code
+}
 
 # ?? small utilities ??????????????????????????????????????????????????????????
 function Test-CommandExists {
@@ -59,15 +198,65 @@ function Get-WslDistros {
 }
 
 function Get-TotalRamGb {
-    $bytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
-    return [math]::Round($bytes / 1GB, 1)
+    # Installed capacity, not the figure Windows reports as usable: an 8 GB laptop shows ~7.7 GB in
+    # Win32_ComputerSystem, and an 8 GB floor must not fail on the machine the kit is designed for.
+    $mods = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue)
+    if ($mods.Count -gt 0) {
+        $sum = ($mods | Measure-Object -Property Capacity -Sum).Sum
+        if ($sum -gt 0) { return [math]::Round($sum / 1GB, 1) }
+    }
+    $cs = Get-CimInstance Win32_ComputerSystem
+    return [math]::Ceiling($cs.TotalPhysicalMemory / 1GB)
 }
 
-function Get-FreeDiskGb {
-    $drive = (Split-Path -Qualifier $script:KitRoot)
+function Get-UsableRamGb {
+    $cs = Get-CimInstance Win32_ComputerSystem
+    return [math]::Round($cs.TotalPhysicalMemory / 1GB, 1)
+}
+
+function Get-FreeDiskGbForPath {
+    param([string]$Path)
+    if (-not $Path) { return -1 }
+    $full = $Path
+    try { $full = [System.IO.Path]::GetFullPath($Path) } catch { }
+    $drive = Split-Path -Qualifier $full
+    if (-not $drive) { return -1 }
     $d = Get-PSDrive -Name ($drive.TrimEnd(':')) -ErrorAction SilentlyContinue
     if (-not $d) { return -1 }
     return [math]::Round($d.Free / 1GB, 1)
+}
+
+function Get-FreeDiskGb {
+    return Get-FreeDiskGbForPath $script:KitRoot
+}
+
+# Where the WSL distribution's disk is created. It is a setting because it is 2-4 GB on the system
+# drive and a client may have a small C: (T-018 / D-017).
+function Get-WslRootPath {
+    $default = Join-Path $env:ProgramData 'EmpiFlow\wsl'
+    $raw = Get-EnvValue 'WSL_ROOT' ''
+    if (-not $raw) { $raw = $default }
+    $raw = [Environment]::ExpandEnvironmentVariables($raw)
+    $full = $raw
+    $valid = $true
+    $reason = ''
+    if (-not [System.IO.Path]::IsPathRooted($raw)) {
+        $valid = $false
+        $reason = 'the path is not absolute'
+    } else {
+        try { $full = [System.IO.Path]::GetFullPath($raw) } catch { $full = $raw; $valid = $false; $reason = 'the path is not valid' }
+        if ($full -match '^[A-Za-z]:\\?$') {
+            $valid = $false
+            $reason = 'use a folder on the drive, not the drive root'
+        } else {
+            $drive = Split-Path -Qualifier $full
+            if ($drive -and -not (Test-Path ($drive + '\'))) {
+                $valid = $false
+                $reason = "drive $drive does not exist"
+            }
+        }
+    }
+    return [pscustomobject]@{ Path = $full; Valid = $valid; Reason = $reason; Default = $default }
 }
 
 function Test-PortListening {
@@ -102,7 +291,7 @@ function Read-EnvFile {
 function Write-EnvFile {
     param([hashtable]$Values)
     $order = @('SITE_NAME', 'ADMIN_PASSWORD', 'DB_PASSWORD', 'MB_RO_PASSWORD',
-               'HTTP_PORT', 'METABASE_PORT', 'EMPI_IMAGE', 'EMPI_IMAGE_TAG')
+               'HTTP_PORT', 'METABASE_PORT', 'WSL_ROOT', 'EMPI_IMAGE', 'EMPI_IMAGE_TAG')
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.AppendLine('# EmpiFlow kit settings - written by install.ps1. Edit and run scripts\restart.cmd.')
     [void]$sb.AppendLine('# See .env.example for what each value means. This file is never committed.')
@@ -209,19 +398,32 @@ function Start-EmpiEngine {
     # Try to bring an installed engine up: Docker Desktop on Windows, or the docker daemon inside WSL.
     if (Get-EmpiEngine) { return $script:Engine }
 
-    if (Test-CommandExists 'docker') {
-        $desktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
-        if (Test-Path $desktop) {
-            Write-Step 'starting Docker Desktop'
-            try { Start-Process $desktop | Out-Null } catch { }
-        }
+    $desktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+    $hasDesktop = (Test-CommandExists 'docker') -and (Test-Path $desktop)
+    $distros = @(Get-WslDistros)
+
+    # Nothing installed at all: do not make a blank machine wait 90 seconds for an engine that is not
+    # there. Install.cmd goes straight to the UAC prompt and the engine installer.
+    if (-not $hasDesktop -and $distros.Count -eq 0) {
+        Write-Note 'no installed engine was found to start'
+        return $null
     }
-    foreach ($distro in (Get-WslDistros)) {
+
+    if ($hasDesktop) {
+        Write-Step 'starting Docker Desktop'
+        try { Start-Process $desktop | Out-Null } catch { }
+    }
+    foreach ($distro in $distros) {
+        Write-Step ("starting the Docker engine inside WSL ({0})" -f $distro)
         $null = Invoke-WslTimed -Arguments @('-d', $distro, '-u', 'root', '-e', 'bash', '-c',
             'systemctl start docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true') -TimeoutSeconds 60
     }
 
-    for ($i = 0; $i -lt 30; $i++) {
+    # Docker Desktop needs longer than a daemon start inside an already-running distro.
+    $iterations = 10
+    if ($hasDesktop) { $iterations = 30 }
+    Write-Note ('waiting for the engine to answer (up to {0} seconds)' -f ($iterations * 3))
+    for ($i = 0; $i -lt $iterations; $i++) {
         Start-Sleep -Seconds 3
         $e = Get-EmpiEngine -Refresh
         if ($e) { return $e }
@@ -294,6 +496,7 @@ function Wait-ForHttp {
     param([string]$Url, [int]$TimeoutSeconds = 600, [string]$Label = 'the site')
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastLog = 0
     while ((Get-Date) -lt $deadline) {
         try {
             $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 8
@@ -302,8 +505,14 @@ function Wait-ForHttp {
         catch {
             # 502/503 while gunicorn boots are expected; anything else is still "not yet".
         }
-        $left = [int]($TimeoutSeconds - $sw.Elapsed.TotalSeconds)
-        Write-Host ("`r  waiting for {0} ... {1,4}s elapsed, {2,4}s left " -f $Label, [int]$sw.Elapsed.TotalSeconds, [math]::Max($left, 0)) -NoNewline
+        $elapsed = [int]$sw.Elapsed.TotalSeconds
+        $left = [int]($TimeoutSeconds - $elapsed)
+        Write-Host ("`r  waiting for {0} ... {1,4}s elapsed, {2,4}s left " -f $Label, $elapsed, [math]::Max($left, 0)) -NoNewline
+        # The console line above is invisible in a hidden worker; the watcher needs a durable heartbeat.
+        if ($elapsed - $lastLog -ge 30) {
+            Write-EmpiLog ("  waiting for {0} ... {1}s elapsed" -f $Label, $elapsed)
+            $lastLog = $elapsed
+        }
         Start-Sleep -Seconds 5
     }
     Write-Host ''

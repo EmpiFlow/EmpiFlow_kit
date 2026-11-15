@@ -1,6 +1,6 @@
 ﻿@echo off
 setlocal
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0shortcuts.ps1" %*
-if "%1"=="-Remove" exit /b %ERRORLEVEL%
-pause
-exit /b %ERRORLEVEL%
+set RC=%ERRORLEVEL%
+if "%~1"=="" pause
+exit /b %RC%

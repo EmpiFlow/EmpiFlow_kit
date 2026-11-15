@@ -12,10 +12,13 @@
 param(
     [switch]$Accept,
     [switch]$Force,
-    [string]$Distro = 'Ubuntu-24.04'
+    [string]$Distro = 'Ubuntu-24.04',
+    [string]$WslRoot = '',
+    [string]$LogPath = ''
 )
 
 . (Join-Path $PSScriptRoot 'lib.ps1')
+if ($LogPath) { Set-EmpiLog -Path $LogPath }
 
 if (-not (Test-IsWindowsOS)) { exit 2 }
 
@@ -36,6 +39,26 @@ if (-not $Accept -and -not $Force) {
     if ((Read-Host) -notmatch '^[yY]') { Write-Host 'Nothing was changed.'; exit 1 }
 }
 
+# Resolve and validate the destination BEFORE the first Windows feature is touched (D-017).
+if ($WslRoot) {
+    $wr = [pscustomobject]@{ Path = $WslRoot; Valid = $true; Reason = '' }
+    try { $wr.Path = [System.IO.Path]::GetFullPath($WslRoot) } catch { $wr.Valid = $false; $wr.Reason = 'the path is not valid' }
+    if ($wr.Valid) {
+        $wrDrive = Split-Path -Qualifier $wr.Path
+        if (-not $wrDrive -or -not (Test-Path ($wrDrive + '\'))) {
+            $wr.Valid = $false
+            $wr.Reason = 'the drive does not exist'
+        }
+    }
+} else {
+    $wr = Get-WslRootPath
+}
+if (-not $wr.Valid) {
+    Write-Bad ('the WSL disk location is not usable: ' + $wr.Reason)
+    Write-Note 'Set WSL_ROOT in .env to a folder on a drive that exists, then run this again. Nothing has been changed.'
+    exit 1
+}
+
 # ?? phase 1: Windows features ???????????????????????????????????????????????
 Write-Head 'Windows features'
 $needReboot = $false
@@ -52,10 +75,10 @@ foreach ($feature in @('Microsoft-Windows-Subsystem-Linux', 'VirtualMachinePlatf
 }
 
 if ($needReboot) {
-    Write-Host ''
-    Write-Host 'Windows has to restart once before WSL can run.' -ForegroundColor Yellow
-    Write-Host 'After the restart, run Install.cmd again (it continues from here).' -ForegroundColor Yellow
-    Write-Host ''
+    Write-Plain ''
+    Write-Warn 'Windows has to restart once before WSL can run.'
+    Write-Warn 'After the restart, run Install.cmd again (it continues from here).'
+    Write-Plain ''
     exit 3
 }
 
@@ -104,8 +127,8 @@ if (-not $wslOk -and $verProbe.TimedOut) {
 
 if (-not $wslOk) {
     Write-Step 'installing the WSL 2 runtime (this downloads ~100 MB)'
-    & $script:WslExe --install --no-distribution --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
-    & $script:WslExe --update --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+    & $script:WslExe --install --no-distribution --web-download 2>&1 | ForEach-Object { Write-Detail "$_" }
+    & $script:WslExe --update --web-download 2>&1 | ForEach-Object { Write-Detail "$_" }
     $null = & $script:WslExe --version 2>$null
     if ($LASTEXITCODE -ne 0) {
         # Windows 11 24H2+/25H2 ships a wsl.exe stub that cannot install itself: WSL is an MSIX package.
@@ -113,11 +136,11 @@ if (-not $wslOk) {
         # while `winget install Microsoft.WSL` installs 3.0.5 and works after one restart.
         Write-Step 'the WSL stub cannot install itself on this build - installing the package with winget'
         & winget.exe install --id Microsoft.WSL -e --accept-package-agreements --accept-source-agreements --silent 2>&1 |
-            ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
-        Write-Host ''
-        Write-Host 'WSL was installed as a Windows package and needs one restart.' -ForegroundColor Yellow
-        Write-Host 'Restart the laptop, then run Install.cmd again.' -ForegroundColor Yellow
-        Write-Host ''
+            ForEach-Object { Write-Detail "$_" }
+        Write-Plain ''
+        Write-Warn 'WSL was installed as a Windows package and needs one restart.'
+        Write-Warn 'Restart the laptop, then run Install.cmd again.'
+        Write-Plain ''
         exit 3
     }
 }
@@ -125,10 +148,14 @@ if (-not $wslOk) {
 Write-Ok 'WSL 2 is available'
 
 # ?? phase 2b: a Linux distribution ??????????????????????????????????????????
+# The destination was resolved and validated before phase 1 (D-017 / T-018).
+Write-Note ('WSL disk location: ' + $wr.Path)
+
 # Primary route: import the official Ubuntu base rootfs. It is 30 MB, needs no Microsoft Store, no
 # first-run account and no interactive window - all of which the Store installer does (measured on the
 # G2 laptop: `wsl --install -d Ubuntu-24.04` hung with 2 CPU-seconds in 25 minutes).
 $distros = @(Get-WslDistros)
+$hadDistro = ($distros.Count -gt 0)
 if ($distros.Count -eq 0) {
     $imported = $false
     Write-Step ("creating {0} from the official Ubuntu base image (downloads ~30 MB, no Store needed)" -f $Distro)
@@ -137,9 +164,10 @@ if ($distros.Count -eq 0) {
         $ProgressPreference = 'SilentlyContinue'
         Invoke-WebRequest -Uri 'https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-amd64.tar.gz' `
             -OutFile $tarPath -TimeoutSec 900
-        $rootDir = Join-Path $env:ProgramData ("EmpiFlow\wsl\" + $Distro)
+        $rootDir = Join-Path $wr.Path $Distro
         New-Item -ItemType Directory -Force -Path $rootDir | Out-Null
-        & $script:WslExe --import $Distro $rootDir $tarPath --version 2 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+        Write-Note ('importing into ' + $rootDir)
+        & $script:WslExe --import $Distro $rootDir $tarPath --version 2 2>&1 | ForEach-Object { Write-Detail "$_" }
         $distros = @(Get-WslDistros)
         $imported = ($distros.Count -gt 0)
     }
@@ -147,17 +175,20 @@ if ($distros.Count -eq 0) {
 
     if (-not $imported) {
         Write-Step 'falling back to the Microsoft Store installer'
-        & $script:WslExe --install -d $Distro --no-launch --web-download 2>&1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+        & $script:WslExe --install -d $Distro --no-launch --web-download 2>&1 | ForEach-Object { Write-Detail "$_" }
         $distros = @(Get-WslDistros)
     }
     if ($distros.Count -eq 0) {
         Write-Bad 'no WSL distribution is installed'
-        Write-Note 'Check the internet connection, then run Install.cmd -InstallEngine again.'
+        Write-Note 'Check the internet connection, then run Install.cmd again.'
         exit 1
     }
 }
 if ($Distro -and ($distros -contains $Distro)) { $target = $Distro } else { $target = $distros[0] }
 Write-Ok ("using the distribution {0}" -f $target)
+if ($hadDistro) {
+    Write-Note 'WSL_ROOT only applies to a new import; an existing distribution stays where it was created.'
+}
 
 # ?? phase 2c: Docker inside it ?????????????????????????????????????????????
 Write-Head 'Docker engine inside WSL'
@@ -183,7 +214,7 @@ $bootstrap = $bootstrap -replace "`r", ''
 Write-Step 'installing Docker (first run only, a few minutes)'
 $bootstrapProbe = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'bash', '-c', $bootstrap) -TimeoutSeconds 1500
 $out = @($bootstrapProbe.Output) + @($bootstrapProbe.Error)
-$out | ForEach-Object { if ("$_".Trim()) { Write-Host "         $_" -ForegroundColor DarkGray } }
+$out | ForEach-Object { if ("$_".Trim()) { Write-Detail "$_" } }
 $dockerNow = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'bash', '-c', 'command -v docker') -TimeoutSeconds 30
 if ($bootstrapProbe.TimedOut -or -not ($dockerNow.Output -join '').Trim()) {
     Write-Bad 'the Docker installation inside WSL failed'
@@ -218,8 +249,8 @@ if (-not $ready) {
 
 $composeProbe = Invoke-WslTimed -Arguments @('-d', $target, '-u', 'root', '-e', 'docker', 'compose', 'version', '--short') -TimeoutSeconds 60
 $compose = ($composeProbe.Output | Select-Object -First 1)
-Write-Host ''
+Write-Plain ''
 Write-Ok ("Docker {0} is running inside WSL ({1})" -f "$v".Trim(), $target)
 Write-Ok ("docker compose {0}" -f "$compose".Trim())
-Write-Host ''
+Write-Plain ''
 exit 0

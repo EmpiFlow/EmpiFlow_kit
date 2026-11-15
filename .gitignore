@@ -28,3 +28,5 @@ Desktop.ini
 # --- scratch space used while building/testing (never published) ---
 .work/
 *.log
+install-log.txt
+install-log*.txt

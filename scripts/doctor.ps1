@@ -6,9 +6,10 @@
 #
 # Exit codes:  0 = ready (PASS/WARN only)   1 = something FAILED   2 = this operating system is not supported
 [CmdletBinding()]
-param([switch]$Quiet, [switch]$Json)
+param([switch]$Quiet, [switch]$Json, [string]$LogPath = '')
 
 . (Join-Path $PSScriptRoot 'lib.ps1')
+if ($LogPath) { Set-EmpiLog -Path $LogPath }
 
 $refusal = 'EmpiFlow_kit is not configured to install on this operating system. This kit supports Windows 10 and Windows 11 only. Nothing has been changed on this machine.'
 
@@ -45,32 +46,45 @@ if ([Environment]::Is64BitOperatingSystem) {
 }
 
 # ?? 2. memory and disk ??????????????????????????????????????????????????????
+# D-018: the floor is 8 GB *installed*. Windows reports an 8 GB laptop as ~7.7 GB usable, so the
+# installed module capacity is what this check uses (Get-TotalRamGb).
 $ram = Get-TotalRamGb
-if ($ram -lt 6) {
-    Add-Row 'RAM' 'FAIL' ("{0} GB of memory - the stack needs about 2.5 GB free and Windows needs the rest" -f $ram) 'Use a machine with 8 GB or more.'
-} elseif ($ram -lt 8) {
-    Add-Row 'RAM' 'WARN' ("{0} GB of memory - it works, but close other programs during the first start" -f $ram) ''
+$ramUsable = Get-UsableRamGb
+if ($ram -lt 8) {
+    Add-Row 'RAM' 'FAIL' ("{0} GB of memory installed - this kit needs 8 GB" -f $ram) 'Use a machine with 8 GB installed. ERPNext, the database and Metabase run together; below 8 GB Windows and WSL compete and the laptop can freeze.'
 } else {
-    Add-Row 'RAM' 'PASS' ("{0} GB of memory" -f $ram)
+    Add-Row 'RAM' 'PASS' ("{0} GB of memory installed ({1} GB usable)" -f $ram, $ramUsable)
 }
 
-$disk = Get-FreeDiskGb
-if ($disk -lt 15) {
-    Add-Row 'DISK' 'FAIL' ("{0} GB free on {1}" -f $disk, (Split-Path -Qualifier $script:KitRoot)) 'Free at least 15 GB (20 GB recommended).'
-} elseif ($disk -lt 25) {
-    Add-Row 'DISK' 'WARN' ("{0} GB free - enough, tight" -f $disk)
+# The WSL disk is a setting (T-018 / D-017). It, not the kit folder, is what grows by 2-4 GB.
+$wslRoot = Get-WslRootPath
+if (-not $wslRoot.Valid) {
+    Add-Row 'DISK' 'FAIL' ("the WSL disk location is not usable ({0}): {1}" -f $wslRoot.Reason, $wslRoot.Path) 'Set WSL_ROOT in .env to a folder on a drive that exists, then run this again.'
 } else {
-    Add-Row 'DISK' 'PASS' ("{0} GB free" -f $disk)
+    $disk = Get-FreeDiskGbForPath $wslRoot.Path
+    $diskDrive = Split-Path -Qualifier $wslRoot.Path
+    if ($disk -lt 15) {
+        Add-Row 'DISK' 'FAIL' ("{0} GB free on {1} (the WSL disk)" -f $disk, $diskDrive) 'Free at least 15 GB (20 GB recommended), or set WSL_ROOT in .env to a folder on a larger drive.'
+    } elseif ($disk -lt 25) {
+        Add-Row 'DISK' 'WARN' ("{0} GB free on {1} (the WSL disk) - enough, tight" -f $disk, $diskDrive)
+    } else {
+        Add-Row 'DISK' 'PASS' ("{0} GB free on {1} (the WSL disk)" -f $disk, $diskDrive)
+    }
 }
 
 # ?? 3. Docker ???????????????????????????????????????????????????????????????
 $engine = Get-EmpiEngine
 $virtualization = $null
+$hypervisor = $null
 try { $virtualization = (Get-CimInstance Win32_Processor | Select-Object -First 1).VirtualizationFirmwareEnabled } catch { }
+try { $hypervisor = (Get-CimInstance Win32_ComputerSystem).HypervisorPresent } catch { }
+# VirtualizationFirmwareEnabled is false on a machine where Hyper-V/WSL is already running (measured
+# on this laptop, build 26200). HypervisorPresent is the reliable "it is available" signal.
+$vtdAvailable = ($virtualization -ne $false) -or ($hypervisor -eq $true)
 
 if ($engine) {
     Add-Row 'DOCKER' 'PASS' (Show-Engine)
-    if ($virtualization -eq $false) {
+    if (-not $vtdAvailable) {
         Add-Row 'VTD' 'WARN' 'virtualisation is off in the firmware, but a working Docker engine was found' ''
     } else {
         Add-Row 'VTD' 'PASS' 'virtualisation available'
@@ -84,13 +98,38 @@ if ($engine) {
         Add-Row 'COMPOSE' 'FAIL' 'docker compose v2 is not available' 'Update Docker (the kit needs the compose v2 plugin).'
     }
 } else {
-    Add-Row 'DOCKER' 'FAIL' 'no Docker engine answers' 'Run Install.cmd and let it set one up, or install Docker Desktop.'
-    if ($virtualization -eq $false) {
+    # D-019: a missing engine is not a broken machine. Setting one up is Install.cmd's job; doctor
+    # only refuses when a prerequisite (RAM, disk, virtualisation, internet) is actually wrong.
+    Add-Row 'DOCKER' 'WARN' 'no Docker engine yet - Install.cmd sets one up (WSL 2 + Docker Engine)' ''
+    if (-not $vtdAvailable) {
         Add-Row 'VTD' 'FAIL' 'virtualisation is disabled in the firmware' 'Turn on virtualisation (VT-x/AMD-V) in the BIOS and start again.'
     } else {
         Add-Row 'VTD' 'PASS' 'virtualisation available'
     }
     Add-Row 'COMPOSE' 'SKIP' 'not checked without an engine'
+
+    $distros = @(Get-WslDistros)
+    if ($distros.Count -gt 0) {
+        Add-Row 'WSL' 'WARN' ("WSL is present ({0}) but no Docker engine answers" -f ($distros -join ', ')) 'Install.cmd starts the engine, or installs it if it is missing.'
+    } else {
+        Add-Row 'WSL' 'WARN' 'WSL is not set up yet - Install.cmd does it (one restart may be needed)' ''
+    }
+}
+
+# D-018: the memory cap is part of the RAM requirement. Show it when the kit will use WSL.
+if (-not $engine -or $engine.Kind -eq 'wsl') {
+    $wslConfigFile = Join-Path $env:USERPROFILE '.wslconfig'
+    if (Test-Path $wslConfigFile) {
+        $memLine = @(Get-Content -LiteralPath $wslConfigFile -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match '^\s*memory\s*=' } | Select-Object -First 1)
+        if ($memLine.Count -gt 0) {
+            Add-Row 'WSLMEM' 'PASS' ("WSL memory cap set (" + $memLine[0].Trim() + ")")
+        } else {
+            Add-Row 'WSLMEM' 'WARN' 'WSL is not capped in .wslconfig' 'Install.cmd writes memory=3GB and swap=6GB; without the cap an 8 GB laptop can freeze.'
+        }
+    } else {
+        Add-Row 'WSLMEM' 'WARN' 'WSL memory cap is not set yet' 'Install.cmd writes %USERPROFILE%\.wslconfig (3 GB / 6 GB swap) when it sets up the engine.'
+    }
 }
 
 $dockerDesktop = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
@@ -103,6 +142,15 @@ $httpPort = [int](Get-EnvValue 'HTTP_PORT' '8080')
 $mbPort   = [int](Get-EnvValue 'METABASE_PORT' '3000')
 $kitUp = $false
 if ($engine) { try { $kitUp = Test-KitRunning } catch { $kitUp = $false } }
+# Compose state can lag for a few seconds after a WSL restart while the pages already answer.
+# A live ping is the stronger signal, and it keeps a re-run of Install.cmd from failing on its own ports.
+# It is checked even when the engine probe failed: the pages answering is proof enough that the ports are ours.
+if (-not $kitUp) {
+    try {
+        $ping = Invoke-WebRequest -Uri "http://127.0.0.1:$httpPort/api/method/ping" -UseBasicParsing -TimeoutSec 4
+        if ($ping.StatusCode -eq 200) { $kitUp = $true }
+    } catch { }
+}
 
 foreach ($p in @(@{ Port = $httpPort; Name = 'ERPNext' }, @{ Port = $mbPort; Name = 'Metabase' })) {
     $inUse = Test-PortListening -Port $p.Port
@@ -151,6 +199,10 @@ if ($Json) {
         kitRoot   = $script:KitRoot
         httpPort  = $httpPort
         mbPort    = $mbPort
+        ramGb     = $ram
+        ramUsableGb = $ramUsable
+        wslRoot   = $wslRoot.Path
+        wslRootValid = $wslRoot.Valid
     } | ConvertTo-Json -Depth 6
     exit $exitNow
 }
@@ -180,4 +232,7 @@ if ($fails.Count -gt 0) {
 }
 Write-Host ''
 Write-Host 'This machine can run the EmpiFlow kit.' -ForegroundColor Green
+if (-not $engine) {
+    Write-Host 'Next: double-click Install.cmd - it sets up WSL and Docker for you.' -ForegroundColor DarkGray
+}
 exit 0

@@ -120,8 +120,8 @@ it on a real laptop.
   with ERPNext's own backup (`/app/backup`), described in `docs/03-troubleshooting.md`.
 - **Default passwords are default.** Change `ADMIN_PASSWORD` and `MB_RO_PASSWORD` in `.env` before the first start
   if the laptop leaves your desk.
-- **The WSL disk is 2–4 GB.** It goes on `C:` by default; set `WSL_ROOT` in `.env` **before the first install**
-  to put it on another drive.
+- **The WSL disk is 2–4 GB.** It goes on `C:` by default. If `C:` is small, run
+  `.\Install.cmd -WslRoot D:\EmpiFlow\wsl` on the first install (or set `WSL_ROOT` in `.env` before it).
 
 ## Licence and provenance
 

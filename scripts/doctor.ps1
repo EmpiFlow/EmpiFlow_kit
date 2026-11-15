@@ -6,7 +6,7 @@
 #
 # Exit codes:  0 = ready (PASS/WARN only)   1 = something FAILED   2 = this operating system is not supported
 [CmdletBinding()]
-param([switch]$Quiet, [switch]$Json, [string]$LogPath = '')
+param([switch]$Quiet, [switch]$Json, [string]$LogPath = '', [string]$WslRoot = '')
 
 . (Join-Path $PSScriptRoot 'lib.ps1')
 if ($LogPath) { Set-EmpiLog -Path $LogPath }
@@ -57,14 +57,14 @@ if ($ram -lt 8) {
 }
 
 # The WSL disk is a setting (T-018 / D-017). It, not the kit folder, is what grows by 2-4 GB.
-$wslRoot = Get-WslRootPath
-if (-not $wslRoot.Valid) {
-    Add-Row 'DISK' 'FAIL' ("the WSL disk location is not usable ({0}): {1}" -f $wslRoot.Reason, $wslRoot.Path) 'Set WSL_ROOT in .env to a folder on a drive that exists, then run this again.'
+$wslTarget = Get-WslRootPath -Override $WslRoot
+if (-not $wslTarget.Valid) {
+    Add-Row 'DISK' 'FAIL' ("the WSL disk location is not usable ({0}): {1}" -f $wslTarget.Reason, $wslTarget.Path) 'Set WSL_ROOT in .env (or run Install.cmd -WslRoot D:\EmpiFlow\wsl) to a folder on a drive that exists, then run this again.'
 } else {
-    $disk = Get-FreeDiskGbForPath $wslRoot.Path
-    $diskDrive = Split-Path -Qualifier $wslRoot.Path
+    $disk = Get-FreeDiskGbForPath $wslTarget.Path
+    $diskDrive = Split-Path -Qualifier $wslTarget.Path
     if ($disk -lt 15) {
-        Add-Row 'DISK' 'FAIL' ("{0} GB free on {1} (the WSL disk)" -f $disk, $diskDrive) 'Free at least 15 GB (20 GB recommended), or set WSL_ROOT in .env to a folder on a larger drive.'
+        Add-Row 'DISK' 'FAIL' ("{0} GB free on {1} (the WSL disk)" -f $disk, $diskDrive) 'Free at least 15 GB (20 GB recommended), or run Install.cmd -WslRoot D:\EmpiFlow\wsl to put the disk on a larger drive.'
     } elseif ($disk -lt 25) {
         Add-Row 'DISK' 'WARN' ("{0} GB free on {1} (the WSL disk) - enough, tight" -f $disk, $diskDrive)
     } else {
@@ -201,8 +201,8 @@ if ($Json) {
         mbPort    = $mbPort
         ramGb     = $ram
         ramUsableGb = $ramUsable
-        wslRoot   = $wslRoot.Path
-        wslRootValid = $wslRoot.Valid
+        wslRoot   = $wslTarget.Path
+        wslRootValid = $wslTarget.Valid
     } | ConvertTo-Json -Depth 6
     exit $exitNow
 }

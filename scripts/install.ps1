@@ -7,6 +7,7 @@
 #   Install.cmd -NoBrowser       do not open ERPNext at the end
 #   Install.cmd -SkipPull        use the image already on the machine
 #   Install.cmd -InstallEngine   accepted for compatibility; engine setup is automatic now
+#   Install.cmd -WslRoot D:\EmpiFlow\wsl   put the WSL disk on another drive on the FIRST install
 #
 # The long work runs in a hidden worker process that writes install-log.txt; this window tails that
 # log and prints a heartbeat every 10 seconds (D-021, engine-quirks.md section 8).
@@ -23,7 +24,8 @@ param(
     [switch]$NoShortcuts,
     [switch]$Elevated,
     [switch]$Worker,
-    [string]$LogPath = ''
+    [string]$LogPath = '',
+    [string]$WslRoot = ''
 )
 
 . (Join-Path $PSScriptRoot 'lib.ps1')
@@ -64,7 +66,7 @@ function Invoke-EmpiInstallLauncher {
 
     # 1. doctor first. It is read-only, and a failure here means nothing has been changed yet.
     Write-Head 'Machine check'
-    & (Join-Path $PSScriptRoot 'doctor.ps1')
+    & (Join-Path $PSScriptRoot 'doctor.ps1') -WslRoot $WslRoot
     $doctorExit = $LASTEXITCODE
     if ($doctorExit -eq 2) { $script:LauncherCode = 2; return }
     if ($doctorExit -ne 0 -and -not $Force) {
@@ -89,6 +91,7 @@ function Invoke-EmpiInstallLauncher {
         EMPI_IMAGE_TAG = 'v1.0.0'
         WSL_ROOT       = (Join-Path $env:ProgramData 'EmpiFlow\wsl')
     }
+    if ($WslRoot) { $values.WSL_ROOT = $WslRoot }
 
     if ($needEnv) {
         if ($Defaults) {
@@ -152,6 +155,7 @@ function Invoke-EmpiInstallLauncher {
         if ($NoBrowser) { $flags += '-NoBrowser' }
         if ($SkipPull) { $flags += '-SkipPull' }
         if ($NoShortcuts) { $flags += '-NoShortcuts' }
+        if ($WslRoot) { $flags += '-WslRoot'; $flags += ('"{0}"' -f $WslRoot) }
         $arg = '-NoProfile -ExecutionPolicy Bypass -File "{0}" {1}' -f $PSCommandPath, ($flags -join ' ')
         try {
             Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arg -WorkingDirectory $script:KitRoot | Out-Null
@@ -181,6 +185,7 @@ function Invoke-EmpiInstallLauncher {
     if ($NoBrowser) { $wtokens += '-NoBrowser' }
     if ($SkipPull) { $wtokens += '-SkipPull' }
     if ($NoShortcuts) { $wtokens += '-NoShortcuts' }
+    if ($WslRoot) { $wtokens += '-WslRoot'; $wtokens += ('"{0}"' -f $WslRoot) }
 
     $worker = $null
     try {
@@ -255,7 +260,7 @@ function Invoke-EmpiInstallWorker {
             Write-Note 'Close this and run Install.cmd again from a normal window; it asks for permission once.'
             Complete-Worker 1
         }
-        $wslRoot = Get-WslRootPath
+        $wslRoot = Get-WslRootPath -Override $WslRoot
         if (-not $wslRoot.Valid) {
             Write-Bad ('the WSL disk location is not usable: ' + $wslRoot.Reason)
             Write-Note 'Set WSL_ROOT in .env to a folder on a drive that exists, then run Install.cmd again.'
@@ -263,7 +268,7 @@ function Invoke-EmpiInstallWorker {
         }
         Write-Step 'setting up WSL 2 and the Docker engine (this takes several minutes)'
         Write-Note ('the WSL disk will be created at: ' + $wslRoot.Path)
-        & (Join-Path $PSScriptRoot 'engine-install.ps1') -Accept -LogPath $LogPath
+        & (Join-Path $PSScriptRoot 'engine-install.ps1') -Accept -LogPath $LogPath -WslRoot $WslRoot
         $code = $LASTEXITCODE
         if ($code -eq 3) {
             Write-Plain ''
@@ -285,7 +290,7 @@ function Invoke-EmpiInstallWorker {
 
     # 2. doctor again, now that an engine exists: catches ports, disk and compose problems before the pull.
     Write-Head 'Machine check'
-    & (Join-Path $PSScriptRoot 'doctor.ps1') -Quiet -LogPath $LogPath
+    & (Join-Path $PSScriptRoot 'doctor.ps1') -Quiet -LogPath $LogPath -WslRoot $WslRoot
     $doctorExit = $LASTEXITCODE
     if ($doctorExit -ne 0 -and -not $Force) {
         Write-Plain ''

@@ -233,8 +233,10 @@ function Get-FreeDiskGb {
 # Where the WSL distribution's disk is created. It is a setting because it is 2-4 GB on the system
 # drive and a client may have a small C: (T-018 / D-017).
 function Get-WslRootPath {
+    param([string]$Override = '')
     $default = Join-Path $env:ProgramData 'EmpiFlow\wsl'
-    $raw = Get-EnvValue 'WSL_ROOT' ''
+    $raw = $Override
+    if (-not $raw) { $raw = Get-EnvValue 'WSL_ROOT' '' }
     if (-not $raw) { $raw = $default }
     $raw = [Environment]::ExpandEnvironmentVariables($raw)
     $full = $raw

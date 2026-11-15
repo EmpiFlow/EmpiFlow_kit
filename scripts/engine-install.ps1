@@ -40,19 +40,7 @@ if (-not $Accept -and -not $Force) {
 }
 
 # Resolve and validate the destination BEFORE the first Windows feature is touched (D-017).
-if ($WslRoot) {
-    $wr = [pscustomobject]@{ Path = $WslRoot; Valid = $true; Reason = '' }
-    try { $wr.Path = [System.IO.Path]::GetFullPath($WslRoot) } catch { $wr.Valid = $false; $wr.Reason = 'the path is not valid' }
-    if ($wr.Valid) {
-        $wrDrive = Split-Path -Qualifier $wr.Path
-        if (-not $wrDrive -or -not (Test-Path ($wrDrive + '\'))) {
-            $wr.Valid = $false
-            $wr.Reason = 'the drive does not exist'
-        }
-    }
-} else {
-    $wr = Get-WslRootPath
-}
+$wr = Get-WslRootPath -Override $WslRoot
 if (-not $wr.Valid) {
     Write-Bad ('the WSL disk location is not usable: ' + $wr.Reason)
     Write-Note 'Set WSL_ROOT in .env to a folder on a drive that exists, then run this again. Nothing has been changed.'

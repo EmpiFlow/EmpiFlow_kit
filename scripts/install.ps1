@@ -266,15 +266,18 @@ function Invoke-EmpiInstallWorker {
             Write-Note 'Close this and run Install.cmd again from a normal window; it asks for permission once.'
             Complete-Worker 1
         }
-        $wslRoot = Get-WslRootPath -Override $WslRoot
-        if (-not $wslRoot.Valid) {
-            Write-Bad ('the WSL disk location is not usable: ' + $wslRoot.Reason)
+        # NOT $wslRoot: PowerShell variable names are case-insensitive, so that spelling would overwrite
+        # the -WslRoot parameter and this script would hand engine-install.ps1 the whole object instead
+        # of a path (measured on the G2 laptop: "the path is not absolute" for a valid WSL_ROOT).
+        $wslTarget = Get-WslRootPath -Override $WslRoot
+        if (-not $wslTarget.Valid) {
+            Write-Bad ('the WSL disk location is not usable: ' + $wslTarget.Reason)
             Write-Note 'Set WSL_ROOT in .env to a folder on a drive that exists, then run Install.cmd again.'
             Complete-Worker 1
         }
         Write-Step 'setting up WSL 2 and the Docker engine (this takes several minutes)'
-        Write-Note ('the WSL disk will be created at: ' + $wslRoot.Path)
-        & (Join-Path $PSScriptRoot 'engine-install.ps1') -Accept -LogPath $LogPath -WslRoot $WslRoot
+        Write-Note ('the WSL disk will be created at: ' + $wslTarget.Path)
+        & (Join-Path $PSScriptRoot 'engine-install.ps1') -Accept -LogPath $LogPath -WslRoot $wslTarget.Path
         $code = $LASTEXITCODE
         if ($code -eq 3) {
             Write-Plain ''

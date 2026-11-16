@@ -27,8 +27,9 @@ nowhere else.
 
 ## Install
 
-1. **Download** this repository: green **Code** button → **Download ZIP**, then extract it to a folder such as
-   `C:\EmpiFlow`. Do not run it from inside a OneDrive folder.
+1. **Download** this repository: green **Code** button → **Download ZIP**. Windows extracts it as a folder
+   named `EmpiFlow_kit-main`; **rename that folder to `EmpiFlow`** (or move everything inside it into an empty
+   `C:\EmpiFlow`), so the commands below match. Do not run it from inside a OneDrive folder.
 2. **Double-click `Install.cmd`.** It:
    - checks the machine first (the same checks as `scripts\doctor.cmd`) and **changes nothing** if a
      prerequisite is wrong;

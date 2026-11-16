@@ -24,8 +24,9 @@ You do **not** need: an account anywhere, a server, a GitHub account, or the int
 
 ## Step 1 — Check the machine
 
-1. Unzip the kit into a normal folder, for example `C:\EmpiFlow`. **Do not** put it in OneDrive or on a USB
-   stick — Docker needs a stable local path, and OneDrive locks files while it syncs.
+1. Unzip the kit. Windows creates a folder named `EmpiFlow_kit-main`; **rename it to `EmpiFlow`** (or move
+   everything inside it into an empty `C:\EmpiFlow`). **Do not** put it in OneDrive or on a USB stick — Docker
+   needs a stable local path, and OneDrive locks files while it syncs.
 2. Open the folder `scripts` and double-click **`doctor.cmd`**.
 
 A black window opens and prints one line per check (the window stays open until you press a key):

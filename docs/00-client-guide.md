@@ -17,8 +17,9 @@ person at a time, not a production server.
 
 ## 2. Install it
 
-1. Download the repository as a ZIP (**Code → Download ZIP**) and extract it somewhere simple, for example
-   `C:\EmpiFlow`. Do not use OneDrive or a USB stick.
+1. Download the repository as a ZIP (**Code → Download ZIP**). Windows extracts it as `EmpiFlow_kit-main`;
+   **rename that folder to `EmpiFlow`** (or move its contents into an empty `C:\EmpiFlow`). Do not use OneDrive
+   or a USB stick.
 2. Double-click **`Install.cmd`**.
 
    It checks the machine first. If something is wrong it tells you and **changes nothing**. If the machine is

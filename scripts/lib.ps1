@@ -197,6 +197,44 @@ function Get-WslDistros {
     return $names
 }
 
+function Get-WslDistroStates {
+    # name -> state ('Running', 'Stopped', ...), parsed from `wsl -l -v`. Same defenses as Get-WslDistros:
+    # UTF-16 output with NULs, a missing wsl.exe, and a wedged service all yield an empty table.
+    if (-not (Test-Path $script:WslExe)) { return @{} }
+    $probe = Invoke-WslTimed -Arguments @('-l', '-v') -TimeoutSeconds 25 -UnicodeOutput
+    if ($probe.TimedOut) { return @{} }
+    $table = @{}
+    foreach ($line in @($probe.Output)) {
+        if ($line -isnot [string]) { continue }
+        $clean = (($line -replace "`0", '') -replace "`a", ' ').Trim()
+        if (-not $clean) { continue }
+        if ($clean -match '^\*?\s*NAME\s+STATE') { continue }     # header
+        if ($clean -notmatch '^\*?\s*(\S+)\s+(Running|Stopped|Installing|Uninstalling|Converting|Starting)\b') { continue }
+        $table[$Matches[1]] = $Matches[2]
+    }
+    return $table
+}
+
+function Stop-WslEngine {
+    # Stop the kit's distribution and give its RAM back. `wsl --terminate` alone does NOT: the WSL2 utility
+    # VM stays alive and keeps its working set (measured 2026-11-16 on the G2 target: `Ubuntu-24.04` Stopped,
+    # vmmemWSL still 851.9 MB, the ext4.vhdx still locked; `wsl --shutdown` removed the process within a
+    # second and released the file). `--shutdown` would also kill a client's *other* WSL distributions, so it
+    # is only used when nothing else is running - which is the normal case on a kit laptop.
+    param([Parameter(Mandatory = $true)][string]$Distro)
+    $null = Invoke-WslTimed -Arguments @('--terminate', $Distro) -TimeoutSeconds 40
+    $states = Get-WslDistroStates
+    $others = @()
+    foreach ($name in @($states.Keys)) {
+        if ($name -ne $Distro -and $states[$name] -eq 'Running') { $others += $name }
+    }
+    if ($others.Count -gt 0) {
+        return [pscustomobject]@{ Shutdown = $false; Stopped = $Distro; Others = $others }
+    }
+    $null = Invoke-WslTimed -Arguments @('--shutdown') -TimeoutSeconds 40
+    return [pscustomobject]@{ Shutdown = $true; Stopped = $Distro; Others = @() }
+}
+
 function Get-TotalRamGb {
     # Installed capacity, not the figure Windows reports as usable: an 8 GB laptop shows ~7.7 GB in
     # Win32_ComputerSystem, and an 8 GB floor must not fail on the machine the kit is designed for.

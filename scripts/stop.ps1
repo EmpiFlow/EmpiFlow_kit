@@ -20,10 +20,19 @@ Invoke-Compose -Arguments @('stop') -AllowFailure | Out-Null
 Write-Ok 'the containers are stopped; your data is kept.'
 
 if ($engine.Kind -eq 'wsl' -and -not $KeepEngine) {
-    Write-Step ('stopping WSL and its Docker engine ({0}); this frees the memory' -f $engine.Distro)
-    # Terminate only the kit's distribution, not every WSL distribution the client may use for other work.
-    & $script:WslExe --terminate $engine.Distro 2>$null | Out-Null
-    Write-Ok ('WSL is stopped ({0}).' -f $engine.Distro)
+    Write-Step ('stopping WSL and its Docker engine ({0})' -f $engine.Distro)
+    # `wsl --terminate` stops the distribution but leaves the shared WSL2 virtual machine (vmmemWSL) alive
+    # with its memory still Resident - measured 851.9 MB after terminate on the G2 target, 2026-11-16.
+    # Stop-WslEngine adds `wsl --shutdown`, but only when no other distribution is running, because that
+    # command would also kill a client's own WSL work.
+    $stop = Stop-WslEngine -Distro $engine.Distro
+    if ($stop.Shutdown) {
+        Write-Ok ('WSL is stopped ({0}); the memory is back with Windows.' -f $engine.Distro)
+    } else {
+        Write-Ok ('WSL is stopped ({0}); the containers are down.' -f $engine.Distro)
+        Write-Warn ('another WSL distribution is running ({0}) - the shared WSL machine stays up and keeps its memory.' -f ($stop.Others -join ', '))
+        Write-Note 'Close it, or run "wsl --shutdown" in a normal window to free that memory too.'
+    }
 } elseif ($engine.Kind -eq 'windows') {
     Write-Note 'Docker Desktop is left running - other programs may be using it.'
 }

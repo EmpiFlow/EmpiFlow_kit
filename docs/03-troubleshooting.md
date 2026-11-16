@@ -210,6 +210,29 @@ not the released one — check `EMPI_IMAGE_TAG` in `.env`.
 You deleted the volumes: the site, the database and Metabase's metadata are gone. That is the reset. Run
 `Install.cmd` again and wait through the first start (5–15 minutes).
 
+### After `2 Stop EmpiFlow`, `3 ERPNext` says "This site can't be reached"
+
+That is correct, not a fault: the stack is stopped, so nothing is listening on `127.0.0.1:8080` (or `:3000`).
+Double-click **1 Start EmpiFlow** and wait for `EmpiFlow is up`. The **3 ERPNext** shortcut only opens the page;
+it does not start anything.
+
+### Task Manager still shows `VmmemWSL` (or `Vmmem`) after Stop
+
+`VmmemWSL` is the memory of the shared WSL 2 virtual machine — the Linux that Docker runs in. It is not a
+container, and stopping the containers does not touch it: `wsl --terminate` alone leaves that machine alive with
+its RAM still held (measured 2026-11-16: 851.9 MB, and the Linux disk stayed locked).
+
+`stop.cmd` now finishes with `wsl --shutdown` **when no other WSL distribution is running**, which removes the
+process and gives the memory back (measured: gone in under a second). If it is still there, another distribution
+is running — the stop window names it. Close that work, then:
+
+```powershell
+wsl --shutdown
+```
+
+Your data is untouched either way: the Linux disk stays at `C:\ProgramData\EmpiFlow\wsl` and is reused on the next
+start.
+
 ### Everything is running but ERPNext shows `502 Bad Gateway`
 
 The backend is restarting (usually memory). `scripts\status.cmd` → if all containers are `running` but the page

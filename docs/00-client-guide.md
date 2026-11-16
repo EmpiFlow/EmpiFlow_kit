@@ -42,9 +42,9 @@ The progress window prints `== EmpiFlow installer - progress`, then one line per
 
 ---
 
-## 3. The EmpiFlow folder (shortcuts)
+## 3. The EmpiFlow_kit folder (shortcuts)
 
-The installer creates a folder called **EmpiFlow** on the Desktop and in the Start menu:
+The installer creates a folder called **EmpiFlow_kit** on the Desktop and in the Start menu:
 
 | item | what it does |
 |---|---|

@@ -3,7 +3,7 @@
 *After `Install.cmd` finishes, the browser opens on ERPNext. This document is the first 20 minutes: the setup
 wizard, where HR lives, and connecting Metabase.*
 
-> **Starting and stopping from now on.** Use the **EmpiFlow** folder on your Desktop: **1 Start EmpiFlow**
+> **Starting and stopping from now on.** Use the **EmpiFlow_kit** folder on your Desktop: **1 Start EmpiFlow**
 > starts WSL, Docker, ERPNext and Metabase; **2 Stop EmpiFlow** stops them and gives the memory back (data is
 > kept). **3 ERPNext** and **4 Metabase** open the two pages. You do not need the installer again.
 
@@ -143,7 +143,7 @@ The kit's own data lives in Docker volumes (`empiflow_sites`, `empiflow_db-data`
 
 | when | what |
 |---|---|
-| start of day | **1 Start EmpiFlow** in the EmpiFlow folder (or `scripts\start.cmd`; or `autostart.cmd` once, and it starts at logon) |
+| start of day | **1 Start EmpiFlow** in the EmpiFlow_kit folder (or `scripts\start.cmd`; or `autostart.cmd` once, and it starts at logon) |
 | end of day | **2 Stop EmpiFlow** (or `scripts\stop.cmd`) — data is kept |
 | open the pages | **3 ERPNext** · **4 Metabase** |
 | something looks wrong | `scripts\status.cmd`, then `docs\03-troubleshooting.md` |

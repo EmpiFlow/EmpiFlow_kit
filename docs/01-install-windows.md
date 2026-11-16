@@ -155,14 +155,14 @@ When it is done:
   Next:      docs\02-first-steps.md
 ```
 
-Your browser opens on ERPNext. The installer also creates the **EmpiFlow** folder on your Desktop and in the
+Your browser opens on ERPNext. The installer also creates the **EmpiFlow_kit** folder on your Desktop and in the
 Start menu.
 
 **[Next: 02 — First steps](02-first-steps.md)** — the setup wizard is waiting for you there.
 
 ---
 
-## The EmpiFlow folder
+## The EmpiFlow_kit folder
 
 | item | what it does |
 |---|---|

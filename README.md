@@ -37,7 +37,7 @@ nowhere else.
      rights **once** (a UAC prompt). If Windows needs a restart, it says so, and you run `Install.cmd` again;
    - downloads the image (~1.5 GB) and starts the stack. The long work runs in the background while a
      **progress window** shows every line and a heartbeat, so you can see it is alive;
-   - creates the **EmpiFlow** folder on your Desktop with the four shortcuts.
+   - creates the **EmpiFlow_kit** folder on your Desktop with the four shortcuts.
 3. The first start takes 5–15 minutes. When it finishes, your browser opens on **<http://127.0.0.1:8080>** —
    log in as `Administrator` with the password you typed.
 
@@ -62,7 +62,7 @@ The full walkthrough: [`docs/00-client-guide.md`](docs/00-client-guide.md) (star
 
 ## Everyday use
 
-The installer creates an **EmpiFlow** folder on your Desktop and in the Start menu:
+The installer creates an **EmpiFlow_kit** folder on your Desktop and in the Start menu:
 
 | item | what it does |
 |---|---|

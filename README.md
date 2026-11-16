@@ -111,6 +111,9 @@ The image is **not** built on your laptop: `compose.yml` pulls a pinned tag from
 (`ghcr.io/empiflow/empiflow-kit-erpnext`). That tag is only promoted after the acceptance suite has passed against
 it on a real laptop.
 
+**Kit version:** `v1.0.1` — scripts and docs only (the installer, stop/start, the docs). The container image is
+still **`v1.0.0`**, the tag the acceptance suite passed; nothing in this release changes it.
+
 ## Limits worth knowing
 
 - **Windows only.** The installer refuses other systems with an explicit message and changes nothing.
